@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getDashboardData } from "@/lib/data";
 import { fetchHtml } from "@/lib/scrape/fetchHtml";
 import { collectImages, toContentImages } from "@/lib/scrape/heuristics";
+import { primeDetailPhotos } from "@/lib/scrape/vicharan";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -48,7 +49,14 @@ async function probeDetail(url: string | undefined) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // ?prime=N walks the newest N day pages through the day-photo cache, one
+  // navigation at a time. A normal scrape only has budget for a couple of
+  // those, so the strip fills in over successive runs; this is the manual
+  // shove that gets it there in one go after a deploy.
+  const prime = Number(new URL(request.url).searchParams.get("prime") ?? 0);
+  const primed = prime > 0 ? await primeDetailPhotos(prime) : undefined;
+
   const startedAt = Date.now();
   // Not fresh: a forced re-scrape plus the day-page probe below ran past
   // the 60s ceiling and returned nothing at all. The cached result is the
@@ -60,6 +68,7 @@ export async function GET() {
   return NextResponse.json(
     {
       scrapeMs,
+      primed,
       sources: {
         dailySatsang: { ok: data.satsang.ok, error: data.satsang.error },
         vicharan: { ok: data.vicharan.ok, error: data.vicharan.error },

@@ -123,7 +123,12 @@ async function fetchBetterPhoto(
   try {
     const html = await fetchHtml(href, {
       timeoutMs: DETAIL_FETCH_TIMEOUT_MS,
-      maxAttempts: 1,
+      // Two, not three: a challenged day page gets one genuine re-solve,
+      // because Cloudflare stops honouring the session's clearance after a
+      // couple of rapid page loads and every day page after that is refused
+      // until it's re-earned. Beyond two, the thumbnail fallback plus the
+      // day-photo cache is the better trade.
+      maxAttempts: 2,
     });
     const $ = cheerio.load(html);
     const candidates = toContentImages(collectImages($, href));
@@ -253,10 +258,12 @@ export async function getVicharan(
         const photo = await cachedBetterPhoto(entry.href, entry.date).catch(
           () => undefined,
         );
-        // Only space out lookups that actually hit the network — a cached
-        // one comes back in milliseconds and has nothing to be polite about.
-        const hitNetwork = Date.now() - startedAt > 300;
-        if (hitNetwork && i < recent.length - 1) {
+        // Only a fast *success* is a cache hit. A challenge rejection also
+        // comes back in milliseconds, and treating that as a cache hit meant
+        // the spacing never engaged for exactly the runs that needed it —
+        // five day pages were refused in barely a second between them.
+        const cacheHit = photo !== undefined && Date.now() - startedAt < 300;
+        if (!cacheHit && i < recent.length - 1) {
           await sleep(DETAIL_FETCH_SPACING_MS);
         }
         return photo;
@@ -300,4 +307,35 @@ export async function getVicharan(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * Walks the newest `count` day pages through the day-photo cache, one
+ * navigation at a time, and reports what each one resolved to.
+ *
+ * A scrape only has budget for a couple of uncached day pages, so the
+ * carousel fills in over successive runs. This exists so that can be done
+ * deliberately — after a deploy, say — rather than waited out. It is
+ * exposed only through /api/debug.
+ */
+export async function primeDetailPhotos(
+  count: number,
+): Promise<{ date: string; photo?: string; error?: string }[]> {
+  const listing = await getVicharan();
+  const out: { date: string; photo?: string; error?: string }[] = [];
+
+  for (const entry of listing.entries.slice(0, Math.min(count, MAX_ENTRIES))) {
+    if (!entry.href) continue;
+    try {
+      out.push({ date: entry.date, photo: await cachedBetterPhoto(entry.href, entry.date) });
+    } catch (err) {
+      out.push({
+        date: entry.date,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    await sleep(DETAIL_FETCH_SPACING_MS);
+  }
+
+  return out;
 }
