@@ -9,7 +9,6 @@ import { IconRail } from "./IconRail";
 import { PrernaParimalCard } from "./PrernaParimalCard";
 import { VachanamrutGemsCard } from "./VachanamrutGemsCard";
 import { DailyAudioCard } from "./DailyAudioCard";
-import { Footer } from "./Footer";
 
 export function DashboardClient({ initialData }: { initialData: DashboardData }) {
   const [data, setData] = useState(initialData);
@@ -61,8 +60,6 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
           <DailyAudioCard tracks={data.satsang.audio} />
         </div>
       </main>
-
-      <Footer />
     </div>
   );
 }
