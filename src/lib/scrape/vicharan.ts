@@ -18,7 +18,7 @@ const LOCATION_SPLIT_RE = /[—–-]\s*/;
 // wasteful for a carousel nobody scrolls that deep into. Cap to the most
 // recent handful instead.
 const MAX_DETAIL_FETCHES = 12;
-const DETAIL_FETCH_CONCURRENCY = 4;
+const DETAIL_FETCH_CONCURRENCY = 2;
 
 function splitDateLocation(
   caption: string | undefined,

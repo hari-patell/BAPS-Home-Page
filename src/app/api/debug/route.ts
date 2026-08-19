@@ -24,11 +24,14 @@ async function probe(url: string) {
  * after each deploy.
  */
 export async function GET() {
-  const [data, satsangProbe, vicharanProbe] = await Promise.all([
-    getDashboardData(),
-    probe(SOURCES.dailySatsang),
-    probe(SOURCES.vicharan),
-  ]);
+  // Sequential on purpose. Each step drives a headless Chrome page, and
+  // running the full dashboard scrape alongside both probes was enough
+  // concurrent Chrome to kill the browser outright ("Connection closed.").
+  // This route is a diagnostic, so trading latency for reliability is the
+  // right call.
+  const satsangProbe = await probe(SOURCES.dailySatsang);
+  const vicharanProbe = await probe(SOURCES.vicharan);
+  const data = await getDashboardData();
 
   return NextResponse.json(
     {

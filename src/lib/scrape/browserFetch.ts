@@ -61,11 +61,44 @@ async function launchBrowser(): Promise<Browser> {
 async function getBrowser(): Promise<Browser> {
   if (browserPromise) {
     const existing = await browserPromise.catch(() => null);
-    if (existing?.connected) return existing;
+    // `connected` alone isn't enough: a browser the serverless runtime
+    // froze (or that died between invocations) can still report connected
+    // and then throw "Connection closed." on first use. version() is a
+    // cheap round-trip that actually proves the process is alive.
+    if (existing?.connected) {
+      const alive = await existing.version().then(() => true).catch(() => false);
+      if (alive) return existing;
+      await existing.close().catch(() => {});
+    }
     browserPromise = null;
   }
   browserPromise = launchBrowser();
   return browserPromise;
+}
+
+/** True for errors that mean the browser process itself went away. */
+function isBrowserGone(err: unknown): boolean {
+  return /Connection closed|Target closed|Protocol error|Session closed|browser has disconnected/i.test(
+    String(err),
+  );
+}
+
+/**
+ * Runs `fn` against the shared browser, relaunching once if the browser
+ * turns out to be dead. Serverless instances get frozen and thawed between
+ * invocations, so a cached browser can be unusable through no fault of the
+ * caller — worth one clean retry rather than failing the whole scrape.
+ */
+async function withBrowser<T>(fn: (browser: Browser) => Promise<T>): Promise<T> {
+  try {
+    return await fn(await getBrowser());
+  } catch (err) {
+    if (!isBrowserGone(err)) throw err;
+    const dead = await browserPromise?.catch(() => null);
+    await dead?.close().catch(() => {});
+    browserPromise = null;
+    return fn(await getBrowser());
+  }
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -333,8 +366,15 @@ async function newStealthPage(browser: Browser): Promise<Page> {
  *     Clearance is a browser-wide cookie, so this second load sails through
  *     with no interstitial, giving a stable frame to actually read from.
  */
-async function renderPage(url: string, timeoutMs: number): Promise<RenderedPage> {
-  const browser = await getBrowser();
+function renderPage(url: string, timeoutMs: number): Promise<RenderedPage> {
+  return withBrowser((browser) => renderPageWith(browser, url, timeoutMs));
+}
+
+async function renderPageWith(
+  browser: Browser,
+  url: string,
+  timeoutMs: number,
+): Promise<RenderedPage> {
   const hostname = new URL(url).hostname;
 
   let challengeDetected = false;
