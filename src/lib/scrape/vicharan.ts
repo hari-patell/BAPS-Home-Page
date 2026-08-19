@@ -30,7 +30,12 @@ const DETAIL_PHOTO_TTL_S = 24 * 60 * 60;
 // entry was falling back to its listing thumbnail.
 const MAX_DETAIL_FETCHES = MAX_ENTRIES;
 const DETAIL_FETCH_CONCURRENCY = 1;
-const DETAIL_PHASE_BUDGET_MS = 20000;
+const DETAIL_PHASE_BUDGET_MS = 24000;
+// Day pages come back challenged when fetched back-to-back, even though the
+// host is cleared and the listing page itself loads fine — Cloudflare is
+// reacting to the burst, not to us. A pause between them buys far more
+// photos than the second or so it costs.
+const DETAIL_FETCH_SPACING_MS = 1500;
 
 function splitDateLocation(
   caption: string | undefined,
@@ -75,6 +80,8 @@ function normaliseDate(raw: string): string | undefined {
   const month = m[2][0].toUpperCase() + m[2].slice(1, 3).toLowerCase();
   return `${Number(m[1])}-${month}-${m[3]}`;
 }
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Runs `fn` over `items` with at most `limit` in flight at once. */
 async function mapWithConcurrency<T, R>(
@@ -226,7 +233,7 @@ export async function getVicharan(
     const betterPhotos = await mapWithConcurrency(
       recent,
       DETAIL_FETCH_CONCURRENCY,
-      (entry, i) => {
+      async (entry, i) => {
         // Newest days first, so if the budget runs out it's the older
         // entries that keep their thumbnail rather than the headline photo.
         // Deadline is checked against the point this fetch could *finish*,
@@ -237,12 +244,22 @@ export async function getVicharan(
           i >= MAX_DETAIL_FETCHES ||
           Date.now() + DETAIL_FETCH_TIMEOUT_MS > detailDeadline
         ) {
-          return Promise.resolve(undefined);
+          return undefined;
         }
         // Not conditioned on `fresh`: a day page is immutable once
         // published, so the manual refresh has nothing to gain from
         // re-fetching six of them and a whole budget to lose.
-        return cachedBetterPhoto(entry.href, entry.date).catch(() => undefined);
+        const startedAt = Date.now();
+        const photo = await cachedBetterPhoto(entry.href, entry.date).catch(
+          () => undefined,
+        );
+        // Only space out lookups that actually hit the network — a cached
+        // one comes back in milliseconds and has nothing to be polite about.
+        const hitNetwork = Date.now() - startedAt > 300;
+        if (hitNetwork && i < recent.length - 1) {
+          await sleep(DETAIL_FETCH_SPACING_MS);
+        }
+        return photo;
       },
     );
 
