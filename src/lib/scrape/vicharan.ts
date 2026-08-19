@@ -20,6 +20,13 @@ const DETAIL_PHOTO_TTL_S = 24 * 60 * 60;
 // page — so it gets a real timeout and a genuine re-solve budget rather than
 // the clipped one the old "bonus photo per day" fetches used.
 const DETAIL_FETCH_TIMEOUT_MS = 15000;
+// The listing page and the day page are two navigations to the same host
+// back-to-back, and Cloudflare challenges the second one purely because of
+// the burst — even though the host is already cleared and the listing loaded
+// fine. A short pause between them is what buys the day page's photos rather
+// than a challenge; without it the day page reliably comes back challenged
+// and the panel falls back to the lone listing thumbnail.
+const DETAIL_FETCH_SPACING_MS = 1500;
 
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -93,12 +100,16 @@ const THUMBNAIL_PATH_RE = /\/Thumbnails\//i;
  * reliable full-vs-blurry signal, and it also drops the small
  * neighbouring-day links a day page carries at the bottom.
  */
-async function fetchDayPhotos(href: string): Promise<VicharanPhoto[]> {
+async function fetchDayPhotos(href: string, deadline?: number): Promise<VicharanPhoto[]> {
   const html = await fetchHtml(href, {
     timeoutMs: DETAIL_FETCH_TIMEOUT_MS,
     // One detail page per scrape now, not six — it can afford the full
-    // re-solve budget the old per-day bonus fetches had to skimp on.
+    // re-solve budget the old per-day bonus fetches had to skimp on. A
+    // burst-challenged day page needs the forced re-solve on attempt 2.
     maxAttempts: 3,
+    // Bounded by the scrape's own wall-clock deadline so a stubborn challenge
+    // can't push the whole dashboard past its 60s ceiling.
+    deadline,
   });
   const $ = cheerio.load(html);
   const candidates = toContentImages(collectImages($, href));
@@ -108,9 +119,8 @@ async function fetchDayPhotos(href: string): Promise<VicharanPhoto[]> {
   for (const c of candidates) {
     if (THUMBNAIL_PATH_RE.test(c.src) || seen.has(c.src)) continue;
     seen.add(c.src);
-    // The caption heuristic already caps length and looks outward from the
-    // image; drop a caption that is only the day's date/location line, since
-    // that's shown once in the header rather than on every photo.
+    // collectImages already looks outward from the image for the caption
+    // ("BAPS Shri Swaminarayan Mandir, Ahmedabad") and caps its length.
     const caption = cleanText(c.caption) || undefined;
     photos.push({ image: c.src, caption });
   }
@@ -123,9 +133,9 @@ async function fetchDayPhotos(href: string): Promise<VicharanPhoto[]> {
  * minutes: a published day page never changes, and re-reading it costs a
  * headless navigation and a Cloudflare solve each time.
  */
-function cachedDayPhotos(href: string): Promise<VicharanPhoto[]> {
+function cachedDayPhotos(href: string, deadline?: number): Promise<VicharanPhoto[]> {
   return unstable_cache(
-    () => fetchDayPhotos(href),
+    () => fetchDayPhotos(href, deadline),
     ["vicharan-day-photos", href],
     // Its own tag, not the dashboard's: refreshing the dashboard should never
     // throw away the day's photos, which don't change and cost a navigation
@@ -234,7 +244,15 @@ export async function getVicharan(
     // nothing to gain from re-navigating it.
     let photos: VicharanPhoto[] = [];
     if (latest?.href) {
-      photos = await cachedDayPhotos(latest.href).catch(() => []);
+      // Space this navigation off the listing fetch that just ran: two
+      // back-to-back page loads on baps.org make Cloudflare challenge the
+      // second, and that challenge is what leaves the panel with only the
+      // fallback thumbnail. Skip the pause if there isn't budget left for it.
+      const roomForSpacing =
+        deadline === undefined ||
+        Date.now() + DETAIL_FETCH_SPACING_MS + DETAIL_FETCH_TIMEOUT_MS < deadline;
+      if (roomForSpacing) await sleep(DETAIL_FETCH_SPACING_MS);
+      photos = await cachedDayPhotos(latest.href, deadline).catch(() => []);
     }
     // If the day page couldn't be read, fall back to the listing thumbnail so
     // the panel shows something rather than an empty state.
@@ -298,6 +316,10 @@ export async function primeDetailPhotos(): Promise<
     return [{ date: latest?.date, error: "no day-page link on the newest entry" }];
   }
 
+  // Same burst pause as the live scrape: the day page is challenged if it
+  // loads right on the heels of the listing fetch above.
+  await sleep(DETAIL_FETCH_SPACING_MS);
+
   let result: { date?: string; photos?: number; sample?: string[]; error?: string };
   try {
     const photos = await cachedDayPhotos(latest.href);
@@ -309,7 +331,6 @@ export async function primeDetailPhotos(): Promise<
   } catch (err) {
     result = { date: latest.date, error: err instanceof Error ? err.message : String(err) };
   }
-  await sleep(0);
 
   // Mark the cached dashboard stale so the page picks the newly primed photos
   // up on its next visit rather than at the end of its 30-minute window.
