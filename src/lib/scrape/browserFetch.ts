@@ -1,5 +1,7 @@
 import chromium from "@sparticuz/chromium";
-import puppeteer, { type Browser, type Page } from "puppeteer-core";
+import puppeteerCore, { type Browser, type Page } from "puppeteer-core";
+import { addExtra } from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
 
 /**
  * baps.org sits behind Cloudflare bot management: a plain server-side
@@ -12,7 +14,18 @@ import puppeteer, { type Browser, type Page } from "puppeteer-core";
  * (via @sparticuz/chromium + puppeteer-core, the standard combo for
  * serverless Lambda-style runtimes) instead of paying a third-party
  * unblocking API.
+ *
+ * A vanilla headless Chromium still carries a bunch of fingerprints
+ * (`navigator.webdriver === true`, missing browser plugins, a SwiftShader
+ * WebGL renderer string, etc.) that bot-management products check for
+ * independently of whether the challenge's proof-of-work actually gets
+ * solved — this showed up as the challenge simply never resolving
+ * (`challengeDetected: true` forever, no amount of retrying helped).
+ * puppeteer-extra's stealth plugin patches those tells; it's the standard
+ * free countermeasure for exactly this, not a third-party service.
  */
+const puppeteer = addExtra(puppeteerCore);
+puppeteer.use(StealthPlugin());
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
