@@ -7,17 +7,39 @@ export const BROWSER_HEADERS: Record<string, string> = {
 };
 
 /**
- * Fetches a page's HTML with a real-browser UA (baps.org has been known to
- * reject bare `fetch` UAs) and a hard timeout so one slow upstream page
- * never hangs a whole dashboard render.
+ * baps.org sits behind Cloudflare's bot-management challenge ("Just a
+ * moment..."), which a plain server-side fetch can never solve — it needs
+ * JS execution and a browser-trusted TLS/IP fingerprint, neither of which a
+ * Vercel serverless function has. When SCRAPER_API_KEY is set, requests are
+ * routed through ScraperAPI (https://scraperapi.com), which renders the page
+ * in a real browser and returns the resulting HTML. Without a key, falls
+ * back to a direct fetch — fine for sources with no bot protection, but
+ * baps.org will 403 until a key is configured (see README).
+ */
+export function buildFetchTarget(url: string): { target: string; headers?: Record<string, string> } {
+  const apiKey = process.env.SCRAPER_API_KEY;
+  if (!apiKey) return { target: url, headers: BROWSER_HEADERS };
+
+  const proxied = new URL("https://api.scraperapi.com/");
+  proxied.searchParams.set("api_key", apiKey);
+  proxied.searchParams.set("url", url);
+  proxied.searchParams.set("render", "true");
+  return { target: proxied.toString() };
+}
+
+/**
+ * Fetches a page's HTML (via ScraperAPI when configured, see above) with a
+ * hard timeout so one slow upstream page never hangs a whole dashboard
+ * render.
  */
 export async function fetchHtml(
   url: string,
   revalidateSeconds: number,
 ): Promise<string> {
-  const res = await fetch(url, {
-    headers: BROWSER_HEADERS,
-    signal: AbortSignal.timeout(12000),
+  const { target, headers } = buildFetchTarget(url);
+  const res = await fetch(target, {
+    headers,
+    signal: AbortSignal.timeout(25000),
     next: { revalidate: revalidateSeconds },
   });
   if (!res.ok) {

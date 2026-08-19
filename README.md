@@ -44,6 +44,36 @@ parsed output plus match counts for every section — fetch it against your
 deployment to see what the heuristics actually found, and adjust the regexes
 in `heuristics.ts` / `dailySatsang.ts` / `vicharan.ts` accordingly.
 
+### baps.org's Cloudflare challenge
+
+baps.org sits behind Cloudflare bot management: a direct server-side fetch
+gets back a "Just a moment..." challenge page (HTTP 403, `cf-mitigated:
+challenge`) instead of the real HTML, no matter what headers are sent —
+solving it requires executing JS in a browser-trusted environment, which a
+serverless `fetch()` can't do.
+
+To get past it, `fetchHtml.ts` routes requests through
+[ScraperAPI](https://www.scraperapi.com/) (with `render=true`, which renders
+the page in a real browser) whenever a `SCRAPER_API_KEY` environment
+variable is set. Without that variable it falls back to a direct fetch,
+which will keep 403ing on baps.org specifically.
+
+To enable it:
+
+1. Sign up at scraperapi.com (has a free trial tier) and copy your API key.
+2. In the Vercel dashboard: Project → Settings → Environment Variables → add
+   `SCRAPER_API_KEY` for Production (and Preview, if you want the preview
+   deployments to work too).
+3. Redeploy (or just wait for the next request — env vars apply to new
+   invocations immediately, no rebuild required).
+4. Hit `/api/debug` again — `scraperApiConfigured` should read `true`, and
+   `probe.dailySatsang.status` / `probe.vicharan.status` should be `200`
+   instead of `403`.
+
+Rendered ScraperAPI requests cost more credits than a plain fetch, so watch
+usage against your plan's limits if you lower `REVALIDATE_SECONDS` much
+below its defaults.
+
 ## Project layout
 
 ```
@@ -87,5 +117,6 @@ Edit `src/lib/config.ts` to change:
 ## Deploy
 
 Deployed on [Vercel](https://vercel.com) — push to `main` (or connect the
-repo in the Vercel dashboard) and it builds with zero extra config. No
-environment variables are required.
+repo in the Vercel dashboard) and it builds with zero extra config. Add
+`SCRAPER_API_KEY` (see above) for the scrapers to actually get past
+baps.org's Cloudflare challenge in production.

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { SOURCES } from "@/lib/config";
 import { getDashboardData } from "@/lib/data";
-import { BROWSER_HEADERS } from "@/lib/scrape/fetchHtml";
+import { buildFetchTarget } from "@/lib/scrape/fetchHtml";
 
 export const runtime = "nodejs";
 
@@ -20,23 +20,24 @@ const DIAGNOSTIC_HEADERS = [
 
 async function probe(url: string) {
   try {
-    const res = await fetch(url, {
-      headers: BROWSER_HEADERS,
-      signal: AbortSignal.timeout(12000),
+    const { target, headers: requestHeaders } = buildFetchTarget(url);
+    const res = await fetch(target, {
+      headers: requestHeaders,
+      signal: AbortSignal.timeout(25000),
       cache: "no-store",
     });
     const body = await res.text();
-    const headers: Record<string, string> = {};
+    const responseHeaders: Record<string, string> = {};
     for (const h of DIAGNOSTIC_HEADERS) {
       const v = res.headers.get(h);
-      if (v) headers[h] = v;
+      if (v) responseHeaders[h] = v;
     }
     return {
       status: res.status,
       statusText: res.statusText,
       ok: res.ok,
       bodyLength: body.length,
-      headers,
+      headers: responseHeaders,
       bodySnippet: body.slice(0, 800),
     };
   } catch (err) {
@@ -61,6 +62,7 @@ export async function GET() {
 
   return NextResponse.json(
     {
+      scraperApiConfigured: Boolean(process.env.SCRAPER_API_KEY),
       probe: { dailySatsang: satsangProbe, vicharan: vicharanProbe },
       summary: {
         hinduDate: data.satsang.hinduDate,
