@@ -50,7 +50,10 @@ async function probeDetail(url: string | undefined) {
 
 export async function GET() {
   const startedAt = Date.now();
-  const data = await getDashboardData({ fresh: true });
+  // Not fresh: a forced re-scrape plus the day-page probe below ran past
+  // the 60s ceiling and returned nothing at all. The cached result is the
+  // same data the page shows, which is what this is meant to check.
+  const data = await getDashboardData();
   const scrapeMs = Date.now() - startedAt;
   const detail = await probeDetail(data.vicharan.entries[0]?.href);
 

@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { unstable_cache } from "next/cache";
 import { SOURCES } from "@/lib/config";
 import type { VicharanData, VicharanEntry } from "@/lib/types";
 import { absoluteUrl, cleanText, fetchHtml } from "./fetchHtml";
@@ -19,14 +20,17 @@ const LOCATION_SPLIT_RE = /[—–-]\s*/;
 // solve. Hence: few of them, a handful at a time, short per-page timeout,
 // and a hard deadline for the phase as a whole.
 const MAX_ENTRIES = 6;
+// A day page never changes once published, so its photo is worth caching
+// far longer than the dashboard itself.
+const DETAIL_PHOTO_TTL_S = 24 * 60 * 60;
 // Detail pages are fetched one at a time. Two simultaneous navigations to
 // baps.org prompt Cloudflare to re-issue a challenge mid-flight — the same
 // race that made one of the two top-level sources fail while the other
 // succeeded (see lib/data.ts). Running them concurrently is why every
 // entry was falling back to its listing thumbnail.
-const MAX_DETAIL_FETCHES = 4;
+const MAX_DETAIL_FETCHES = MAX_ENTRIES;
 const DETAIL_FETCH_CONCURRENCY = 1;
-const DETAIL_PHASE_BUDGET_MS = 24000;
+const DETAIL_PHASE_BUDGET_MS = 20000;
 
 function splitDateLocation(
   caption: string | undefined,
@@ -109,7 +113,7 @@ async function fetchBetterPhoto(
   href: string,
   expectedDate: string,
   fresh: boolean,
-): Promise<string | undefined> {
+): Promise<string> {
   try {
     const html = await fetchHtml(href, {
       timeoutMs: DETAIL_FETCH_TIMEOUT_MS,
@@ -127,10 +131,29 @@ async function fetchBetterPhoto(
     // whose own filename stamp matches the day we asked for before falling
     // back to document order.
     const sameDay = full.find((c) => dateFromFilename(c.src) === expectedDate);
-    return (sameDay ?? full[0] ?? candidates[0])?.src;
+    const src = (sameDay ?? full[0] ?? candidates[0])?.src;
+    if (!src) throw new Error(`no usable photo on ${href}`);
+    return src;
   } catch {
-    return undefined;
+    // Deliberately rethrown rather than resolved as undefined: the caller
+    // caches this, and caching "no photo" for a day would pin the blurry
+    // thumbnail in place long after a transient failure.
+    throw new Error(`no photo for ${href}`);
   }
+}
+
+/**
+ * Day-page photos are cached per URL, well beyond the dashboard's own 30
+ * minutes. Only a genuinely new day costs a navigation, so after the first
+ * couple of runs every entry shows its full-size photo rather than only the
+ * few that fit inside one run's detail budget.
+ */
+function cachedBetterPhoto(href: string, expectedDate: string): Promise<string> {
+  return unstable_cache(
+    () => fetchBetterPhoto(href, expectedDate, false),
+    ["vicharan-detail-photo", href],
+    { revalidate: DETAIL_PHOTO_TTL_S, tags: ["dashboard"] },
+  )();
 }
 
 // Day pages live at /Vicharan/2026/18-August-2026-31775.aspx. Reading the
@@ -217,7 +240,10 @@ export async function getVicharan(
         ) {
           return Promise.resolve(undefined);
         }
-        return fetchBetterPhoto(entry.href, entry.date, fresh);
+        const lookup = fresh
+          ? fetchBetterPhoto(entry.href, entry.date, true)
+          : cachedBetterPhoto(entry.href, entry.date);
+        return lookup.catch(() => undefined);
       },
     );
 
