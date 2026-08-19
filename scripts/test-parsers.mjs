@@ -7,6 +7,7 @@ import {
   collectImages,
   toContentImages,
 } from "../src/lib/scrape/heuristics.ts";
+import { collectDetailLinksByDate } from "../src/lib/scrape/vicharan.ts";
 import * as cheerio from "cheerio";
 
 let failed = 0;
@@ -133,6 +134,27 @@ const audioHtml = `<html><body><script>$("#p").jPlayer({ready:function(){$(this)
 const $a = cheerio.load(audioHtml);
 const tracks = collectAudioSources($a, "https://www.baps.org/Daily-Satsang.aspx");
 check("1 track found", tracks.length === 1, JSON.stringify(tracks.map(t=>t.src)));
+
+
+console.log("\n=== vicharan day-page links keyed by date ===");
+{
+  // Real listing markup: the caption sits outside the <a>, and the "read
+  // more" link is a bare anchor with no image inside it at all.
+  const $ = cheerio.load(`
+    <a href="/Vicharan/2026/18-August-2026-31775.aspx">
+      <img src="//Data/Sites/1/Media/OtherImages/31775/Thumbnails/20260818_i.jpg">
+    </a>
+    <span>18-Aug-2026 - Ahmedabad, India</span>
+    <a href="/Vicharan/2026/4-August-2026-31724.aspx">More</a>
+    <a href="/vicharan.aspx">Vicharan</a>
+  `);
+  const map = collectDetailLinksByDate($, "https://www.baps.org/vicharan.aspx");
+  check("finds the 18-Aug day page", map.get("18-Aug-2026") ===
+    "https://www.baps.org/Vicharan/2026/18-August-2026-31775.aspx", map.get("18-Aug-2026"));
+  check("finds a day page with no image inside the link",
+    map.get("4-Aug-2026") === "https://www.baps.org/Vicharan/2026/4-August-2026-31724.aspx");
+  check("listing page itself is not a day page", map.size === 2, String(map.size));
+}
 
 console.log(`\n${failed === 0 ? "ALL PASS" : failed + " FAILED"}`);
 process.exit(failed === 0 ? 0 : 1);

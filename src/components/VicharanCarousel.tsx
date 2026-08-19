@@ -58,6 +58,8 @@ export function VicharanCarousel({ entries, scheduleNote, scheduleHref }: Props)
           src={current.image}
           alt={[current.date, current.location].filter(Boolean).join(" — ") || "Vicharan"}
           className="absolute inset-0 animate-fade-in"
+          fit="contain"
+          priority
         />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/5 to-transparent" />
 

@@ -63,6 +63,7 @@ export function DarshanPanel({ murti, swamishri }: Props) {
               src={current.src}
               alt={current.caption ?? "Darshan"}
               className="h-full w-full rounded-2xl"
+              fit="contain"
             />
           </div>
           <div className="flex shrink-0 items-center justify-between gap-2 px-5 pb-4 pt-3">

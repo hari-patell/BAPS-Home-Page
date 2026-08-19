@@ -18,9 +18,15 @@ const LOCATION_SPLIT_RE = /[—–-]\s*/;
 // function's 60s ceiling alongside Chromium cold-start and the Cloudflare
 // solve. Hence: few of them, a handful at a time, short per-page timeout,
 // and a hard deadline for the phase as a whole.
-const MAX_DETAIL_FETCHES = 6;
-const DETAIL_FETCH_CONCURRENCY = 3;
-const DETAIL_PHASE_BUDGET_MS = 15000;
+const MAX_ENTRIES = 6;
+// Detail pages are fetched one at a time. Two simultaneous navigations to
+// baps.org prompt Cloudflare to re-issue a challenge mid-flight — the same
+// race that made one of the two top-level sources fail while the other
+// succeeded (see lib/data.ts). Running them concurrently is why every
+// entry was falling back to its listing thumbnail.
+const MAX_DETAIL_FETCHES = 4;
+const DETAIL_FETCH_CONCURRENCY = 1;
+const DETAIL_PHASE_BUDGET_MS = 24000;
 
 function splitDateLocation(
   caption: string | undefined,
@@ -70,14 +76,14 @@ function normaliseDate(raw: string): string | undefined {
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
-  fn: (item: T) => Promise<R>,
+  fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
   async function worker() {
     while (next < items.length) {
       const i = next++;
-      results[i] = await fn(items[i]);
+      results[i] = await fn(items[i], i);
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
@@ -95,10 +101,13 @@ async function mapWithConcurrency<T, R>(
 // Short timeout — these are bonus fetches with a graceful thumbnail
 // fallback, so failing fast on a slow detail page beats risking the whole
 // route's maxDuration budget.
-const DETAIL_FETCH_TIMEOUT_MS = 10000;
+const DETAIL_FETCH_TIMEOUT_MS = 9000;
+
+const THUMBNAIL_PATH_RE = /\/Thumbnails\//i;
 
 async function fetchBetterPhoto(
   href: string,
+  expectedDate: string,
   fresh: boolean,
 ): Promise<string | undefined> {
   try {
@@ -108,13 +117,43 @@ async function fetchBetterPhoto(
     });
     const $ = cheerio.load(html);
     const candidates = toContentImages(collectImages($, href));
-    // Detail pages put the full-size photo under the same /Media/ tree but
-    // outside /Thumbnails/ — prefer that over any thumbnail echo.
-    const full = candidates.find((c) => !/\/Thumbnails\//i.test(c.src));
-    return (full ?? candidates[0])?.src;
+
+    // Detail pages serve the full-size photo out of the same /Media/ tree as
+    // the listing, just outside /Thumbnails/ — that path segment is the only
+    // reliable full-vs-blurry signal, since both share a filename.
+    const full = candidates.filter((c) => !THUMBNAIL_PATH_RE.test(c.src));
+
+    // A day's page also links out to neighbouring days, so prefer a photo
+    // whose own filename stamp matches the day we asked for before falling
+    // back to document order.
+    const sameDay = full.find((c) => dateFromFilename(c.src) === expectedDate);
+    return (sameDay ?? full[0] ?? candidates[0])?.src;
   } catch {
     return undefined;
   }
+}
+
+// Day pages live at /Vicharan/2026/18-August-2026-31775.aspx. Reading the
+// date straight off the URL is steadier than relying on each thumbnail
+// sitting inside its own <a> — on the listing page the caption sits outside
+// the link, and some thumbnails aren't wrapped in one at all, which left
+// `href` undefined and skipped the detail fetch entirely.
+const DETAIL_HREF_RE = /\/Vicharan\/\d{4}\/(\d{1,2})-([A-Za-z]{3,9})-(\d{4})-\d+\.aspx/i;
+
+export function collectDetailLinksByDate(
+  $: cheerio.CheerioAPI,
+  baseUrl: string,
+): Map<string, string> {
+  const byDate = new Map<string, string>();
+  $("a[href]").each((_, el) => {
+    const href = absoluteUrl(baseUrl, $(el).attr("href"));
+    if (!href) return;
+    const m = href.match(DETAIL_HREF_RE);
+    if (!m) return;
+    const date = normaliseDate(`${m[1]}-${m[2]}-${m[3]}`);
+    if (date && !byDate.has(date)) byDate.set(date, href);
+  });
+  return byDate;
 }
 
 export async function getVicharan(
@@ -135,6 +174,7 @@ export async function getVicharan(
     // (.../Thumbnails/20260804_i.jpg), and captionByDate recovers the
     // location by matching that date against the page's own text.
     const captionByDate = collectCaptionsByDate($);
+    const detailByDate = collectDetailLinksByDate($, sourceUrl);
 
     const parsed = contentImages
       .map((img) => {
@@ -143,23 +183,43 @@ export async function getVicharan(
         if (!date) return undefined;
         const location =
           fromCaption.location ?? captionByDate.get(date) ?? "";
-        return { date, location, thumbnail: img.src, href: img.href };
+        return {
+          date,
+          location,
+          thumbnail: img.src,
+          href: img.href ?? detailByDate.get(date),
+        };
       })
       .filter((e): e is NonNullable<typeof e> => Boolean(e));
 
     // Listing order is chronological ascending (oldest day first); take the
     // most recent slice and show newest-first, matching how the source site
     // itself highlights the latest Vicharan first.
-    const recent = parsed.slice(-MAX_DETAIL_FETCHES).reverse();
+    const recent = parsed.slice(-MAX_ENTRIES).reverse();
 
     // Hard deadline for the whole detail-fetch phase: past it, remaining
     // entries just keep their listing thumbnail rather than risking the
     // function timing out and losing the entire dashboard.
     const detailDeadline = Date.now() + DETAIL_PHASE_BUDGET_MS;
-    const betterPhotos = await mapWithConcurrency(recent, DETAIL_FETCH_CONCURRENCY, (entry) => {
-      if (!entry.href || Date.now() > detailDeadline) return Promise.resolve(undefined);
-      return fetchBetterPhoto(entry.href, fresh);
-    });
+    const betterPhotos = await mapWithConcurrency(
+      recent,
+      DETAIL_FETCH_CONCURRENCY,
+      (entry, i) => {
+        // Newest days first, so if the budget runs out it's the older
+        // entries that keep their thumbnail rather than the headline photo.
+        // Deadline is checked against the point this fetch could *finish*,
+        // not the point it starts — otherwise a fetch begun one millisecond
+        // inside the budget could still overrun it by a full timeout.
+        if (
+          !entry.href ||
+          i >= MAX_DETAIL_FETCHES ||
+          Date.now() + DETAIL_FETCH_TIMEOUT_MS > detailDeadline
+        ) {
+          return Promise.resolve(undefined);
+        }
+        return fetchBetterPhoto(entry.href, entry.date, fresh);
+      },
+    );
 
     const entries: VicharanEntry[] = recent.map((entry, i) => ({
       date: entry.date,
