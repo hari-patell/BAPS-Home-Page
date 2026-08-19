@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "verify:stealth": "node --experimental-strip-types scripts/verify-stealth.mjs"
+    "verify:stealth": "node --experimental-strip-types scripts/verify-stealth.mjs",
+    "test:parsers": "tsx scripts/test-parsers.mjs"
   },
   "dependencies": {
     "@sparticuz/chromium": "^149.0.0",
@@ -26,6 +27,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }

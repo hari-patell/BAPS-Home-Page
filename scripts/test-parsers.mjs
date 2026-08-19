@@ -1,0 +1,90 @@
+// Tests the new parsing logic against the ACTUAL strings observed in the
+// live /api/debug output, so we're not guessing again.
+import {
+  dateFromFilename,
+  isLikelyChromeImage,
+  collectAudioSources,
+} from "../src/lib/scrape/heuristics.ts";
+import * as cheerio from "cheerio";
+
+let failed = 0;
+const check = (label, pass, detail = "") => {
+  console.log(`${pass ? "PASS" : "FAIL"}  ${label}${detail ? "  -> " + detail : ""}`);
+  if (!pass) failed++;
+};
+
+console.log("=== image classification (real srcs from live probe) ===");
+const real = [
+  ["https://www.baps.org/images/baps_logo.svg", true],
+  ["https://www.baps.org/images/baps_logo_small.svg", true],
+  ["https://www.baps.org/images/bulletL.png", true],
+  ["https://www.baps.org/images/bulletR.png", true],
+  ["https://www.baps.org/images/ds-separator.png", true],
+  ["https://www.baps.org/Data/Sites/1/Media/dailysatsang/2026/260818-nashville.jpg", false],
+  ["https://www.baps.org/Data/Sites/1/Media/dailysatsang/2026/260818S.jpg", false],
+  ["https://www.baps.org//Data/Sites/1/Media/OtherImages/31774/Thumbnails/20260817_i.jpg", false],
+  ["https://www.baps.org//Data/Sites/1/Media/GalleryImages/36866/Thumbnails/2026_08_07_095_Sarangpur.jpg", false],
+];
+for (const [src, expectChrome] of real) {
+  const got = isLikelyChromeImage({ src, alt: "", title: "" });
+  check(`${expectChrome ? "chrome" : "content"}: ${src.split("/").pop()}`, got === expectChrome);
+}
+
+console.log("\n=== date from thumbnail filename ===");
+const dates = [
+  ["https://www.baps.org//Data/Sites/1/Media/OtherImages/31774/Thumbnails/20260817_i.jpg", "17-Aug-2026"],
+  ["https://www.baps.org//Data/Sites/1/Media/OtherImages/31711/Thumbnails/20260801_i.jpg", "1-Aug-2026"],
+  ["https://www.baps.org//Data/Sites/1/Media/OtherImages/31766/Thumbnails/20260814.jpeg", "14-Aug-2026"],
+  ["https://www.baps.org//Data/Sites/1/Media/OtherImages/31724/Thumbnails/2026_08_04_i.jpg", "4-Aug-2026"],
+];
+for (const [src, expected] of dates) {
+  const got = dateFromFilename(src);
+  check(`${src.split("/").pop()} -> ${expected}`, got === expected, `got ${got}`);
+}
+
+console.log("\n=== swamishri vs murti filename rule ===");
+const SWAMISHRI_FILE_RE = /\d+S\.(?:jpe?g|png|webp)$/i;
+check("260818S.jpg is swamishri", SWAMISHRI_FILE_RE.test("260818S.jpg"));
+check("260818-nashville.jpg is NOT swamishri", !SWAMISHRI_FILE_RE.test("260818-nashville.jpg"));
+
+console.log("\n=== darshan captions from real body text ===");
+const bodyText =
+  "Daily Satsang 18 Aug 2026, Shravan Sud Chhath Samvat 2082 Murti Darshan Shri Akshar Purushottam Maharaj, Nashville, TN, USA Swamishri's Darshan Param Pujya Pramukh Swami MaharajFebruary 1998, Galteshwar, India પ્રેરણા પરિમલ બ્રહ્મસ્વરૂપ";
+const DARSHAN_CAPTIONS_RE =
+  /Murti\s+Darshan\s+(.{3,160}?)\s+Swamishri'?s\s+Darshan\s+(.{3,160}?)(?=\s*(?:પ્રેરણા|Prerna|Vachanamrut\s+Gems))/i;
+const capm = bodyText.match(DARSHAN_CAPTIONS_RE);
+check("captions matched", Boolean(capm));
+if (capm) {
+  check("murti caption", capm[1].includes("Nashville"), capm[1]);
+  check("swamishri caption", capm[2].includes("Galteshwar"), capm[2]);
+}
+
+console.log("\n=== samvat date ===");
+const SAMVAT_RE = /([A-Za-z]+\s+(?:Sud|Vad)\s+[A-Za-z઀-૿]+\s*,?\s*Samvat\s*\d{4})/i;
+const sam = bodyText.match(SAMVAT_RE)?.[1];
+check("hindu date", sam === "Shravan Sud Chhath Samvat 2082", sam);
+
+console.log("\n=== audio dedupe from real jPlayer script ===");
+const html = `<html><body>
+<script>$("#Jplayer_VS").jPlayer({ready: function () {$(this).jPlayer("setMedia", {mp3: "https://download.baps.org/Data/Sites/1/Media/DownloadableFile/DailySatsang/vachanamrut_2019/vachanamrut_219.mp3"});}});</script>
+<script>$("#Jplayer_vt").jPlayer({ready: function () {$(this).jPlayer("setMedia", {mp3: "https://download.baps.org/Data/Sites/1/Media/DownloadableFile/DailySatsang/vato_2019/Upasana-008.mp3"});}});</script>
+<script>$("#Jplayer_AP").jPlayer({ready: function () {$(this).jPlayer("setMedia", {mp3: "https://download.baps.org/Data/Sites/1/Media/DownloadableFile/DailySatsang/GurusravanYagn-3 _ 2018/52.mp3"});}});</script>
+<a href="https://download.baps.org/download.php?file=Data/Sites/1/Media/DownloadableFile/DailySatsang/vachanamrut_2019/vachanamrut_219.mp3">dl</a>
+</body></html>`;
+const $ = cheerio.load(html);
+const audio = collectAudioSources($, "https://www.baps.org/Daily-Satsang.aspx");
+check("3 unique tracks (download.php twin folded)", audio.length === 3, `got ${audio.length}: ${audio.map(a=>a.src.split("/").pop()).join(", ")}`);
+
+console.log("\n=== gujarati block excludes script/style ===");
+const gujHtml = `<html><body>
+<style>.ui-datepicker td { border: 0; padding: 2px 10px; } .x{color:red}</style>
+<script>var a = 1; function f(){ return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; }</script>
+<p>બ્રહ્મસ્વરૂપ પ્રમુખસ્વામી મહારાજની પ્રેરક પ્રસંગ-સ્મૃતિઓ તા. 1-9-2010, ભાવનગર મુલાકાત દરમ્યાન ચકમપરના બેચરભાઈ આવ્યા.</p>
+</body></html>`;
+const $g = cheerio.load(gujHtml);
+$g("script, style, noscript").remove();
+const text = $g("body").text().replace(/\s+/g, " ").trim();
+check("no CSS leaked into text", !text.includes("ui-datepicker") && !text.includes("var a"), text.slice(0, 60));
+
+console.log(`\n${failed === 0 ? "ALL PASS" : failed + " FAILED"}`);
+process.exit(failed === 0 ? 0 : 1);

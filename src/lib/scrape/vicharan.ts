@@ -2,7 +2,12 @@ import * as cheerio from "cheerio";
 import { SOURCES } from "@/lib/config";
 import type { VicharanData, VicharanEntry } from "@/lib/types";
 import { absoluteUrl, cleanText, fetchHtml, fetchHtmlWithLinks } from "./fetchHtml";
-import { DATE_TOKEN_RE, findHeading, toContentImages } from "./heuristics";
+import {
+  DATE_TOKEN_RE,
+  dateFromFilename,
+  findHeading,
+  toContentImages,
+} from "./heuristics";
 
 const LOCATION_SPLIT_RE = /[—–-]\s*/;
 
@@ -25,6 +30,35 @@ function splitDateLocation(
   const rest = caption.slice(dateMatch.index! + date.length);
   const location = cleanText(rest.split(LOCATION_SPLIT_RE).slice(-1)[0]) || undefined;
   return { date, location };
+}
+
+/**
+ * Maps each `D-Mon-YYYY` date on the listing page to the location that
+ * follows it, by scanning the page's own text for the site's
+ * "1-Aug-2026 - Sarangpur, India" caption format. Keyed on a normalised
+ * date so it lines up with dates recovered from thumbnail filenames.
+ */
+function collectCaptionsByDate($: cheerio.CheerioAPI): Map<string, string> {
+  const byDate = new Map<string, string>();
+  const text = cleanText($("body").text());
+  const pattern = new RegExp(
+    `(${DATE_TOKEN_RE.source})\\s*[-–—]\\s*([A-Za-z][^,]{0,40},\\s*[A-Za-z][A-Za-z .]{0,40})`,
+    "gi",
+  );
+  for (const m of text.matchAll(pattern)) {
+    const date = normaliseDate(m[1]);
+    const location = cleanText(m[2]);
+    if (date && location && !byDate.has(date)) byDate.set(date, location);
+  }
+  return byDate;
+}
+
+/** `01-Aug-2026` / `1 Aug 2026` -> `1-Aug-2026`, matching dateFromFilename. */
+function normaliseDate(raw: string): string | undefined {
+  const m = raw.match(/(\d{1,2})[-\s]([A-Za-z]{3})[a-z]*[-\s](\d{4})/);
+  if (!m) return undefined;
+  const month = m[2][0].toUpperCase() + m[2].slice(1, 3).toLowerCase();
+  return `${Number(m[1])}-${month}-${m[3]}`;
 }
 
 /** Runs `fn` over `items` with at most `limit` in flight at once. */
@@ -81,16 +115,21 @@ export async function getVicharan(): Promise<VicharanData> {
 
     const contentImages = toContentImages(images);
 
+    // The caption text ("4-Aug-2026 - Sarangpur, India") sits outside the
+    // <a> in the listing markup, so the DOM scan often comes back with an
+    // empty caption. The thumbnail filename carries the date regardless
+    // (.../Thumbnails/20260804_i.jpg), and captionByDate recovers the
+    // location by matching that date against the page's own text.
+    const captionByDate = collectCaptionsByDate($);
+
     const parsed = contentImages
       .map((img) => {
-        const { date, location } = splitDateLocation(img.caption || undefined);
-        if (!date && !location) return undefined;
-        return {
-          date: date ?? "",
-          location: location ?? cleanText(img.caption) ?? "",
-          thumbnail: img.src,
-          href: img.href,
-        };
+        const fromCaption = splitDateLocation(img.caption || undefined);
+        const date = fromCaption.date ?? dateFromFilename(img.src);
+        if (!date) return undefined;
+        const location =
+          fromCaption.location ?? captionByDate.get(date) ?? "";
+        return { date, location, thumbnail: img.src, href: img.href };
       })
       .filter((e): e is NonNullable<typeof e> => Boolean(e));
 
