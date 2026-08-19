@@ -190,6 +190,48 @@ export function collectDetailLinksByDate(
   return byDate;
 }
 
+interface ListingEntry {
+  date: string;
+  location: string;
+  thumbnail: string;
+  href?: string;
+}
+
+/**
+ * Reads the listing page down to the newest few days, newest first.
+ *
+ * The caption text ("4-Aug-2026 - Sarangpur, India") sits outside the <a>
+ * in the listing markup, so the DOM scan often comes back with an empty
+ * caption. The thumbnail filename carries the date regardless
+ * (.../Thumbnails/20260804_i.jpg), and captionByDate recovers the location
+ * by matching that date against the page's own text.
+ */
+function parseListing($: cheerio.CheerioAPI, sourceUrl: string): ListingEntry[] {
+  const contentImages = toContentImages(collectImages($, sourceUrl));
+  const captionByDate = collectCaptionsByDate($);
+  const detailByDate = collectDetailLinksByDate($, sourceUrl);
+
+  const parsed = contentImages
+    .map((img): ListingEntry | undefined => {
+      const fromCaption = splitDateLocation(img.caption || undefined);
+      const date = fromCaption.date ?? dateFromFilename(img.src);
+      if (!date) return undefined;
+      const location = fromCaption.location ?? captionByDate.get(date) ?? "";
+      return {
+        date,
+        location,
+        thumbnail: img.src,
+        href: img.href ?? detailByDate.get(date),
+      };
+    })
+    .filter((e): e is ListingEntry => Boolean(e));
+
+  // Listing order is chronological ascending (oldest day first); take the
+  // most recent slice and show newest-first, matching how the source site
+  // itself highlights the latest Vicharan first.
+  return parsed.slice(-MAX_ENTRIES).reverse();
+}
+
 export async function getVicharan(
   { fresh = false }: { fresh?: boolean } = {},
 ): Promise<VicharanData> {
@@ -200,36 +242,7 @@ export async function getVicharan(
     const html = await fetchHtml(sourceUrl, { revalidate: fresh ? false : 1800 });
     const $ = cheerio.load(html);
 
-    const contentImages = toContentImages(collectImages($, sourceUrl));
-
-    // The caption text ("4-Aug-2026 - Sarangpur, India") sits outside the
-    // <a> in the listing markup, so the DOM scan often comes back with an
-    // empty caption. The thumbnail filename carries the date regardless
-    // (.../Thumbnails/20260804_i.jpg), and captionByDate recovers the
-    // location by matching that date against the page's own text.
-    const captionByDate = collectCaptionsByDate($);
-    const detailByDate = collectDetailLinksByDate($, sourceUrl);
-
-    const parsed = contentImages
-      .map((img) => {
-        const fromCaption = splitDateLocation(img.caption || undefined);
-        const date = fromCaption.date ?? dateFromFilename(img.src);
-        if (!date) return undefined;
-        const location =
-          fromCaption.location ?? captionByDate.get(date) ?? "";
-        return {
-          date,
-          location,
-          thumbnail: img.src,
-          href: img.href ?? detailByDate.get(date),
-        };
-      })
-      .filter((e): e is NonNullable<typeof e> => Boolean(e));
-
-    // Listing order is chronological ascending (oldest day first); take the
-    // most recent slice and show newest-first, matching how the source site
-    // itself highlights the latest Vicharan first.
-    const recent = parsed.slice(-MAX_ENTRIES).reverse();
+    const recent = parseListing($, sourceUrl);
 
     // Hard deadline for the whole detail-fetch phase: past it, remaining
     // entries just keep their listing thumbnail rather than risking the
@@ -321,13 +334,25 @@ export async function getVicharan(
 export async function primeDetailPhotos(
   count: number,
 ): Promise<{ date: string; photo?: string; error?: string }[]> {
-  const listing = await getVicharan();
-  const out: { date: string; photo?: string; error?: string }[] = [];
+  const sourceUrl = SOURCES.vicharan;
+  let recent: ListingEntry[];
+  try {
+    recent = parseListing(cheerio.load(await fetchHtml(sourceUrl)), sourceUrl);
+  } catch (err) {
+    return [{ date: "listing", error: err instanceof Error ? err.message : String(err) }];
+  }
 
-  for (const entry of listing.entries.slice(0, Math.min(count, MAX_ENTRIES))) {
-    if (!entry.href) continue;
+  const out: { date: string; photo?: string; error?: string }[] = [];
+  for (const entry of recent.slice(0, Math.min(count, MAX_ENTRIES))) {
+    if (!entry.href) {
+      out.push({ date: entry.date, error: "no day-page link" });
+      continue;
+    }
     try {
-      out.push({ date: entry.date, photo: await cachedBetterPhoto(entry.href, entry.date) });
+      out.push({
+        date: entry.date,
+        photo: await cachedBetterPhoto(entry.href, entry.date),
+      });
     } catch (err) {
       out.push({
         date: entry.date,
