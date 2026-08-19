@@ -55,7 +55,15 @@ export async function GET(request: Request) {
   // those, so the strip fills in over successive runs; this is the manual
   // shove that gets it there in one go after a deploy.
   const prime = Number(new URL(request.url).searchParams.get("prime") ?? 0);
-  const primed = prime > 0 ? await primeDetailPhotos(prime) : undefined;
+  if (prime > 0) {
+    // Priming returns on its own. Doing it *and* the full report needs two
+    // listing scrapes plus several day pages, which ran past the 60s
+    // ceiling and returned nothing at all.
+    return NextResponse.json(
+      { primed: await primeDetailPhotos(prime) },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
 
   const startedAt = Date.now();
   // Not fresh: a forced re-scrape plus the day-page probe below ran past
@@ -68,7 +76,6 @@ export async function GET(request: Request) {
   return NextResponse.json(
     {
       scrapeMs,
-      primed,
       sources: {
         dailySatsang: { ok: data.satsang.ok, error: data.satsang.error },
         vicharan: { ok: data.vicharan.ok, error: data.vicharan.error },
