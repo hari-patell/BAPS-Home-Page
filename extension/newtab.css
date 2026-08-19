@@ -439,6 +439,11 @@ a {
   flex: 1;
   min-height: 0;
 }
+/* Without this, `display: flex` beats the UA `[hidden] { display: none }`,
+   so the panel and the empty-state message would both render at once. */
+.darshan-body[hidden] {
+  display: none;
+}
 .darshan-stage {
   margin: 1rem 1.25rem 0;
   border-radius: 1rem;
@@ -493,6 +498,9 @@ a {
   text-align: center;
   font-size: 0.9rem;
   color: color-mix(in srgb, var(--asmita) 40%, transparent);
+}
+.empty[hidden] {
+  display: none;
 }
 
 /* ---------- Text + audio cards ---------- */
