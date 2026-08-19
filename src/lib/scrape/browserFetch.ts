@@ -1,5 +1,5 @@
 import chromium from "@sparticuz/chromium";
-import puppeteer, { type Browser } from "puppeteer-core";
+import puppeteer, { type Browser, type Page } from "puppeteer-core";
 
 /**
  * baps.org sits behind Cloudflare bot management: a plain server-side
@@ -17,6 +17,16 @@ import puppeteer, { type Browser } from "puppeteer-core";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 const CHALLENGE_TITLE_RE = /just a moment/i;
+const MIN_CONTENT_IMAGE_SIZE = 140; // px, either dimension — separates photos from icons/logos
+
+export interface ImageCandidate {
+  src: string;
+  alt: string;
+  title: string;
+  width: number;
+  height: number;
+  caption: string;
+}
 
 // Reused across warm invocations of the same function instance so we're not
 // paying Chromium's ~1-2s launch cost on every request.
@@ -40,20 +50,110 @@ async function getBrowser(): Promise<Browser> {
   return browserPromise;
 }
 
-interface ProbeResult {
-  status?: number;
-  finalUrl: string;
-  title: string;
-  challengeDetected: boolean;
-  headers: Record<string, string>;
-  htmlLength: number;
-  htmlSnippet: string;
+/** Scrolls to the bottom in steps so lazy-loaded/below-the-fold images actually load. */
+async function autoScroll(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => {
+      let total = 0;
+      const step = 600;
+      const timer = setInterval(() => {
+        window.scrollBy(0, step);
+        total += step;
+        if (total >= document.body.scrollHeight || total > 10000) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 120);
+    });
+  });
+  await page.waitForNetworkIdle({ timeout: 5000 }).catch(() => {});
 }
 
-async function renderPage(url: string, timeoutMs: number) {
+/**
+ * Reads real rendered image data straight from the DOM — naturalWidth/
+ * naturalHeight and layout size, not HTML attributes, which are frequently
+ * absent or unreliable (a site logo with no `width=""` attribute is
+ * indistinguishable from a content photo if you only look at markup). This
+ * is what actually separates a 40px icon from a 600px darshan photo. Also
+ * picks up CSS `background-image` slides, a common pattern for photo
+ * carousels that plain `<img>` scraping misses entirely.
+ */
+async function extractImageCandidates(
+  page: Page,
+  minSize: number,
+): Promise<ImageCandidate[]> {
+  return page.evaluate((minSize: number) => {
+    const seen = new Set<string>();
+    const results: {
+      src: string;
+      alt: string;
+      title: string;
+      width: number;
+      height: number;
+      caption: string;
+    }[] = [];
+
+    const textOf = (el: Element | null): string =>
+      el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
+
+    const push = (
+      src: string | null | undefined,
+      alt: string | null,
+      title: string | null,
+      width: number,
+      height: number,
+      captionEl: Element | null,
+    ) => {
+      if (!src || seen.has(src) || width < minSize) return;
+      seen.add(src);
+      let caption = (alt || title || "").trim();
+      if (!caption && captionEl) {
+        const t = textOf(captionEl);
+        if (t && t.length < 200) caption = t;
+      }
+      results.push({ src, alt: alt || "", title: title || "", width, height, caption });
+    };
+
+    document.querySelectorAll("img").forEach((img) => {
+      const src =
+        img.currentSrc ||
+        img.src ||
+        img.getAttribute("data-src") ||
+        img.getAttribute("data-lazy-src") ||
+        "";
+      const rect = img.getBoundingClientRect();
+      // Take whichever is larger: naturalWidth is 0 for an unloaded lazy
+      // image (rect/CSS size still tells us its intended display size),
+      // while rect.width is 0 for a display:none carousel slide that isn't
+      // the active one (naturalWidth still tells us its real photo size).
+      const width = Math.max(img.naturalWidth || 0, rect.width || 0);
+      const height = Math.max(img.naturalHeight || 0, rect.height || 0);
+      push(src, img.getAttribute("alt"), img.getAttribute("title"), width, height, img.parentElement);
+    });
+
+    document.querySelectorAll<HTMLElement>("[style*='background-image']").forEach((el) => {
+      const bg = getComputedStyle(el).backgroundImage;
+      const match = bg.match(/url\((['"]?)(.*?)\1\)/);
+      if (!match) return;
+      const rect = el.getBoundingClientRect();
+      push(match[2], el.getAttribute("alt"), el.getAttribute("title"), rect.width, rect.height, el);
+    });
+
+    return results;
+  }, minSize);
+}
+
+interface RenderedPage {
+  page: Page;
+  response: Awaited<ReturnType<Page["goto"]>>;
+  challengeDetected: boolean;
+}
+
+async function renderPage(url: string, timeoutMs: number): Promise<RenderedPage> {
   const browser = await getBrowser();
   const page = await browser.newPage();
   await page.setUserAgent(UA);
+  await page.setViewport({ width: 1440, height: 900 });
   let response = await page.goto(url, { waitUntil: "networkidle2", timeout: timeoutMs });
 
   // Cloudflare's automatic challenge resolves via a JS-triggered reload once
@@ -67,30 +167,56 @@ async function renderPage(url: string, timeoutMs: number) {
     if (nav) response = nav;
   }
 
+  await autoScroll(page);
+
   return { page, response, challengeDetected };
 }
 
-/** Fetches a URL with a real headless browser and returns the rendered HTML. */
-export async function fetchRenderedHtml(
+export interface RenderedContent {
+  html: string;
+  images: ImageCandidate[];
+}
+
+/** Fetches a URL with a real headless browser and returns HTML + real-dimension image candidates. */
+export async function fetchRenderedPage(
   url: string,
   timeoutMs = 25000,
-): Promise<string> {
+): Promise<RenderedContent> {
   const { page } = await renderPage(url, timeoutMs);
   try {
-    return await page.content();
+    const [html, images] = await Promise.all([
+      page.content(),
+      extractImageCandidates(page, MIN_CONTENT_IMAGE_SIZE),
+    ]);
+    return { html, images };
   } finally {
     await page.close();
   }
 }
 
-/** Like fetchRenderedHtml, but returns diagnostics instead of just the HTML — used by /api/debug. */
-export async function probeRenderedHtml(
+interface ProbeResult {
+  status?: number;
+  finalUrl: string;
+  title: string;
+  challengeDetected: boolean;
+  headers: Record<string, string>;
+  htmlLength: number;
+  htmlSnippet: string;
+  imageCandidateCount: number;
+  imageCandidates: ImageCandidate[];
+}
+
+/** Like fetchRenderedPage, but returns diagnostics instead — used by /api/debug. */
+export async function probeRenderedPage(
   url: string,
   timeoutMs = 25000,
 ): Promise<ProbeResult> {
   const { page, response, challengeDetected } = await renderPage(url, timeoutMs);
   try {
-    const html = await page.content();
+    const [html, images] = await Promise.all([
+      page.content(),
+      extractImageCandidates(page, MIN_CONTENT_IMAGE_SIZE),
+    ]);
     return {
       status: response?.status(),
       finalUrl: page.url(),
@@ -99,6 +225,8 @@ export async function probeRenderedHtml(
       headers: response?.headers() ?? {},
       htmlLength: html.length,
       htmlSnippet: html.slice(0, 800),
+      imageCandidateCount: images.length,
+      imageCandidates: images.slice(0, 25),
     };
   } finally {
     await page.close();

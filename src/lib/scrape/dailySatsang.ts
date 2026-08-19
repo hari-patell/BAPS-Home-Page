@@ -3,12 +3,13 @@ import { SOURCES } from "@/lib/config";
 import type { DailySatsangData, TextBlock } from "@/lib/types";
 import { cleanText } from "./fetchHtml";
 import { fetchHtml } from "./fetchHtml";
+import type { ImageCandidate } from "./browserFetch";
 import {
   SAMVAT_RE,
   collectAudioSources,
-  collectImages,
   findHeading,
   findLargestGujaratiBlock,
+  toContentImages,
 } from "./heuristics";
 
 const VACHANAMRUT_TITLE_RE = /vachan[aā]mrut/i;
@@ -65,10 +66,12 @@ function extractVachanamrutGems(
 }
 
 function bucketDarshanImages(
-  $: cheerio.CheerioAPI,
-  baseUrl: string,
+  images: ImageCandidate[],
 ): DailySatsangData["darshan"] {
-  const all = collectImages($, baseUrl, { minWidth: 120 });
+  const all = toContentImages(images).map((img) => ({
+    src: img.src,
+    caption: img.caption || undefined,
+  }));
 
   const murti: DailySatsangData["darshan"]["murti"] = [];
   const swamishri: DailySatsangData["darshan"]["swamishri"] = [];
@@ -95,7 +98,7 @@ export async function getDailySatsang(): Promise<DailySatsangData> {
   const fetchedAt = new Date().toISOString();
 
   try {
-    const html = await fetchHtml(sourceUrl);
+    const { html, images } = await fetchHtml(sourceUrl);
     const $ = cheerio.load(html);
     const bodyText = cleanText($("body").text());
 
@@ -110,7 +113,7 @@ export async function getDailySatsang(): Promise<DailySatsangData> {
       prernaParimal: extractPrernaParimal($),
       vachanamrutGems: extractVachanamrutGems($),
       audio,
-      darshan: bucketDarshanImages($, sourceUrl),
+      darshan: bucketDarshanImages(images),
       sourceUrl,
       fetchedAt,
       ok: true,

@@ -1,14 +1,16 @@
-import { fetchRenderedHtml } from "./browserFetch";
+import { fetchRenderedPage, type RenderedContent } from "./browserFetch";
 
 /**
- * Fetches a page's rendered HTML via a headless browser (see
- * browserFetch.ts for why a plain fetch() can't get past baps.org's
- * Cloudflare challenge). Caching is handled at the page level via
- * `export const revalidate` in page.tsx, not here — a browser navigation
- * isn't a cacheable fetch() call the way Next's data cache expects.
+ * Fetches a page's rendered HTML and real-dimension image candidates via a
+ * headless browser (see browserFetch.ts for why a plain fetch() can't get
+ * past baps.org's Cloudflare challenge, and why images come from the live
+ * DOM rather than static HTML attributes). Caching is handled at the page
+ * level via `export const revalidate` in page.tsx, not here — a browser
+ * navigation isn't a cacheable fetch() call the way Next's data cache
+ * expects.
  */
-export async function fetchHtml(url: string): Promise<string> {
-  return fetchRenderedHtml(url);
+export async function fetchHtml(url: string): Promise<RenderedContent> {
+  return fetchRenderedPage(url);
 }
 
 export function absoluteUrl(

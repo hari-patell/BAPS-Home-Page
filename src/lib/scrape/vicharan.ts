@@ -2,7 +2,7 @@ import * as cheerio from "cheerio";
 import { SOURCES } from "@/lib/config";
 import type { VicharanData, VicharanEntry } from "@/lib/types";
 import { absoluteUrl, cleanText, fetchHtml } from "./fetchHtml";
-import { DATE_TOKEN_RE, collectImages, findHeading } from "./heuristics";
+import { DATE_TOKEN_RE, findHeading, toContentImages } from "./heuristics";
 
 const LOCATION_SPLIT_RE = /[—–-]\s*/;
 
@@ -23,14 +23,14 @@ export async function getVicharan(): Promise<VicharanData> {
   const fetchedAt = new Date().toISOString();
 
   try {
-    const html = await fetchHtml(sourceUrl);
+    const { html, images } = await fetchHtml(sourceUrl);
     const $ = cheerio.load(html);
 
-    const images = collectImages($, sourceUrl, { minWidth: 100 });
+    const contentImages = toContentImages(images);
 
-    const entries: VicharanEntry[] = images
+    const entries: VicharanEntry[] = contentImages
       .map((img): VicharanEntry | undefined => {
-        const { date, location } = splitDateLocation(img.caption);
+        const { date, location } = splitDateLocation(img.caption || undefined);
         if (!date && !location) return undefined;
         return {
           date: date ?? "",

@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { SOURCES } from "@/lib/config";
 import { getDashboardData } from "@/lib/data";
-import { probeRenderedHtml } from "@/lib/scrape/browserFetch";
+import { probeRenderedPage } from "@/lib/scrape/browserFetch";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 async function probe(url: string) {
   try {
-    return await probeRenderedHtml(url);
+    return await probeRenderedPage(url);
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }

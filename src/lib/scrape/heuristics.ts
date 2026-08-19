@@ -1,6 +1,7 @@
 import type { CheerioAPI, Cheerio } from "cheerio";
 import type { AnyNode } from "domhandler";
 import { absoluteUrl, cleanText } from "./fetchHtml";
+import type { ImageCandidate } from "./browserFetch";
 
 export const GUJARATI_RE = /[઀-૿]/;
 export const SAMVAT_RE =
@@ -8,11 +9,25 @@ export const SAMVAT_RE =
 export const DATE_TOKEN_RE =
   /\b\d{1,2}[-\s](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[-\s]\d{4}\b/i;
 
-const MIN_IMAGE_HINT = /\b(icon|logo|sprite|spacer|pixel|bullet|arrow)\b/i;
+const CHROME_HINT_RE = /\b(icon|logo|sprite|spacer|pixel|bullet|arrow|favicon)\b/i;
 
-/** True for <img> src values that are almost certainly chrome, not content. */
-export function looksLikeChrome(src: string): boolean {
-  return MIN_IMAGE_HINT.test(src);
+/**
+ * Secondary filter on top of browserFetch's size threshold — catches
+ * oversized logos/banners by looking at alt/title/src text instead of just
+ * rendered dimensions.
+ */
+export function isLikelyChromeImage(candidate: {
+  src: string;
+  alt: string;
+  title: string;
+}): boolean {
+  return CHROME_HINT_RE.test(`${candidate.alt} ${candidate.title} ${candidate.src}`);
+}
+
+export function toContentImages(
+  candidates: ImageCandidate[],
+): ImageCandidate[] {
+  return candidates.filter((c) => !isLikelyChromeImage(c));
 }
 
 /**
@@ -53,63 +68,6 @@ export function findLargestGujaratiBlock(
     }
   });
   return best;
-}
-
-export interface ScrapedImage {
-  src: string;
-  caption?: string;
-  date?: string;
-}
-
-/** Collects candidate content images with a nearby caption, deduped by src. */
-export function collectImages(
-  $: CheerioAPI,
-  baseUrl: string,
-  opts: { minWidth?: number } = {},
-): ScrapedImage[] {
-  const seen = new Set<string>();
-  const out: ScrapedImage[] = [];
-
-  $("img").each((_, el) => {
-    const node = $(el);
-    const rawSrc =
-      node.attr("data-src") ||
-      node.attr("data-lazy-src") ||
-      node.attr("src") ||
-      "";
-    if (!rawSrc || looksLikeChrome(rawSrc)) return;
-
-    const width = Number(node.attr("width") || 0);
-    if (opts.minWidth && width && width < opts.minWidth) return;
-
-    const abs = absoluteUrl(baseUrl, rawSrc);
-    if (!abs || seen.has(abs)) return;
-
-    // Caption heuristics, in priority order: alt/title attrs, then nearby
-    // text in a parent container, then a following sibling caption node.
-    const alt = cleanText(node.attr("alt"));
-    const title = cleanText(node.attr("title"));
-    let caption = alt || title;
-
-    if (!caption) {
-      const parentText = cleanText(node.parent().text());
-      if (parentText && parentText.length < 200) caption = parentText;
-    }
-    if (!caption) {
-      const sibText = cleanText(node.next().text());
-      if (sibText && sibText.length < 200) caption = sibText;
-    }
-
-    const dateMatch = (caption || "").match(DATE_TOKEN_RE);
-    seen.add(abs);
-    out.push({
-      src: abs,
-      caption: caption || undefined,
-      date: dateMatch?.[0],
-    });
-  });
-
-  return out;
 }
 
 /** First <audio>/<source> element whose resolved src looks like real audio. */

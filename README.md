@@ -12,11 +12,18 @@ Vercel.
 ## How it works
 
 There's no official BAPS API, so `src/lib/scrape/` fetches the two public
-pages server-side and parses them with [cheerio](https://cheerio.js.org/).
-Because the pages have no documented markup contract, the parsers use
-heuristics (keyword/regex matching, Gujarati-script detection, date-pattern
-matching) rather than brittle hard-coded selectors — see
-`src/lib/scrape/heuristics.ts`. Every scraper is wrapped so a parse failure
+pages server-side. Text content (Prerna Parimal, Vachanamrut Gems, the
+Hindu/Samvat date) is parsed from the rendered HTML with
+[cheerio](https://cheerio.js.org/) using heuristics (keyword/regex matching,
+Gujarati-script detection) rather than brittle hard-coded selectors, since
+the pages have no documented markup contract — see
+`src/lib/scrape/heuristics.ts`. Images are found differently: rather than
+trust HTML `width`/`height` attributes (often missing or unreliable —
+that's exactly how a site logo with no `width=""` ended up rendered as a
+giant "photo" during development), `browserFetch.ts` reads real rendered
+dimensions straight off the live DOM (`naturalWidth`, `getBoundingClientRect`)
+inside the headless browser itself, which is a strictly more reliable signal
+than any markup-based guess. Every scraper is wrapped so a parse failure
 degrades a single section to an empty state instead of breaking the page.
 
 - `src/lib/scrape/browserFetch.ts` — headless-Chromium page fetch (see below)
@@ -42,9 +49,12 @@ baps.org CDN paths reject cross-site requests, and to avoid maintaining a
 The parsers in this repo were written without being able to inspect
 baps.org's live markup (the sandbox this project was built in has no general
 internet egress). `GET /api/debug` (unlinked from the UI) returns the raw
-parsed output plus match counts for every section — fetch it against your
-deployment to see what the heuristics actually found, and adjust the regexes
-in `heuristics.ts` / `dailySatsang.ts` / `vicharan.ts` accordingly.
+parsed output, match counts for every section, and — per source page —
+`probe.*.imageCandidates`, the actual image/background-image elements the
+DOM scan found with their real rendered dimensions and captions. Fetch it
+against your deployment to see what the heuristics actually found, and
+adjust the regexes in `heuristics.ts` / `dailySatsang.ts` / `vicharan.ts` or
+the `MIN_CONTENT_IMAGE_SIZE` threshold in `browserFetch.ts` accordingly.
 
 ### baps.org's Cloudflare challenge
 
