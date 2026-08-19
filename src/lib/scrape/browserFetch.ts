@@ -243,7 +243,20 @@ async function renderPage(url: string, timeoutMs: number): Promise<RenderedPage>
   const page = await browser.newPage();
   await page.setUserAgent(UA);
   await page.setViewport({ width: 1440, height: 900 });
-  let response = await page.goto(url, { waitUntil: "networkidle2", timeout: timeoutMs });
+
+  let response: Awaited<ReturnType<Page["goto"]>> = null;
+  try {
+    response = await page.goto(url, { waitUntil: "networkidle2", timeout: timeoutMs });
+  } catch (err) {
+    // Cloudflare's challenge can trigger its own client-side reload while
+    // goto() is still waiting on *that* (interstitial) page's load
+    // lifecycle, tearing down the frame context goto() was watching —
+    // Puppeteer surfaces that as "Navigating frame was detached" instead of
+    // just resolving with the new page. Expected here, not fatal: give the
+    // page a moment to land wherever it actually navigated to.
+    if (!/detached/i.test(String(err))) throw err;
+    await page.waitForNetworkIdle({ timeout: timeoutMs }).catch(() => {});
+  }
 
   // Cloudflare's automatic challenge resolves via a JS-triggered reload once
   // its proof-of-work check passes; wait for that follow-up navigation if
