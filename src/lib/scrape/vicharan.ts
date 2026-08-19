@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { unstable_cache } from "next/cache";
+import { revalidateTag, unstable_cache } from "next/cache";
 import { SOURCES } from "@/lib/config";
 import type { VicharanData, VicharanEntry } from "@/lib/types";
 import { absoluteUrl, cleanText, fetchHtml } from "./fetchHtml";
@@ -163,7 +163,10 @@ function cachedBetterPhoto(href: string, expectedDate: string): Promise<string> 
   return unstable_cache(
     () => fetchBetterPhoto(href, expectedDate),
     ["vicharan-detail-photo", href],
-    { revalidate: DETAIL_PHOTO_TTL_S, tags: ["dashboard"] },
+    // Its own tag, not the dashboard's: refreshing the dashboard should
+    // never throw away day photos, which don't change and cost a
+    // navigation each to re-earn.
+    { revalidate: DETAIL_PHOTO_TTL_S, tags: ["vicharan-detail-photo"] },
   )();
 }
 
@@ -361,6 +364,12 @@ export async function primeDetailPhotos(
     }
     await sleep(DETAIL_FETCH_SPACING_MS);
   }
+
+  // Mark the cached dashboard stale so the page picks the newly primed
+  // photos up on its next visit rather than at the end of its 30-minute
+  // window. "max" is stale-while-revalidate: the current blob is still
+  // served while the re-scrape runs, so nobody waits on it.
+  if (out.some((r) => r.photo)) revalidateTag("dashboard", "max");
 
   return out;
 }
