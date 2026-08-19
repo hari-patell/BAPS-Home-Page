@@ -80,7 +80,6 @@ a {
 }
 .brand-title {
   font-family: var(--font-display);
-  font-style: italic;
   font-weight: 600;
   font-size: 1.5rem;
   letter-spacing: 0.02em;
@@ -210,7 +209,6 @@ a {
 
 .card-title {
   font-family: var(--font-display);
-  font-style: italic;
   font-size: 1.15rem;
   color: var(--dharma);
 }
@@ -223,15 +221,39 @@ a {
   color: color-mix(in srgb, var(--shurvirta) 80%, transparent);
 }
 
+/* ---------- Vicharan + Darshan row ---------- */
+.top-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+@media (min-width: 1024px) {
+  .top-row {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .top-row .vicharan {
+    flex: 2;
+  }
+  .top-row .darshan {
+    flex: 1;
+  }
+}
+
 /* ---------- Vicharan ---------- */
 .vicharan {
   display: flex;
   flex-direction: column;
-  height: 440px;
+  height: 420px;
+}
+@media (min-width: 1024px) {
+  .vicharan {
+    height: 520px;
+  }
 }
 @media (max-width: 640px) {
   .vicharan {
-    height: 380px;
+    height: 360px;
   }
 }
 .vicharan-head {
@@ -352,53 +374,27 @@ a {
   gap: 0.5rem;
 }
 
-.thumbstrip {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding: 0.75rem;
-  border-top: 1px solid color-mix(in srgb, var(--asmita) 10%, transparent);
-  background: rgba(0, 0, 0, 0.2);
-  scrollbar-width: none;
-}
-.thumbstrip::-webkit-scrollbar {
-  display: none;
-}
-.thumb {
-  flex-shrink: 0;
-  height: 2.75rem;
-  width: 2.75rem;
-  padding: 0;
-  border-radius: 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--asmita) 10%, transparent);
-  overflow: hidden;
-  cursor: pointer;
-  opacity: 0.7;
-  background: rgba(0, 0, 0, 0.3);
-  transition: opacity 0.2s, border-color 0.2s;
-}
-.thumb img {
-  height: 100%;
-  width: 100%;
-  object-fit: cover;
-  display: block;
-}
-.thumb:hover {
-  opacity: 1;
-}
-.thumb.active {
-  opacity: 1;
-  border-color: color-mix(in srgb, var(--shurvirta) 70%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--shurvirta) 40%, transparent);
+/* Clicking either stage image opens the full-screen preview. */
+.stage-img,
+.darshan-img {
+  cursor: zoom-in;
 }
 
 /* ---------- Darshan ---------- */
 .darshan {
-  margin-top: 1rem;
   display: flex;
   flex-direction: column;
-  height: 440px;
+  height: 420px;
+}
+@media (min-width: 1024px) {
+  .darshan {
+    height: 520px;
+  }
+}
+@media (max-width: 640px) {
+  .darshan {
+    height: 360px;
+  }
 }
 .darshan-head {
   display: flex;
@@ -590,4 +586,62 @@ a {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ---------- Lightbox ---------- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(6px);
+  animation: fade-in 0.3s ease-out;
+}
+.lightbox[hidden] {
+  display: none;
+}
+.lightbox-img {
+  max-height: 85vh;
+  max-width: 100%;
+  object-fit: contain;
+  border-radius: 1rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  cursor: default;
+}
+.lightbox-caption {
+  max-width: 40rem;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  color: color-mix(in srgb, var(--asmita) 90%, transparent);
+}
+.lightbox-caption[hidden] {
+  display: none;
+}
+.lightbox-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.5rem;
+  width: 2.5rem;
+  border-radius: 999px;
+  border: none;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--asmita);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.lightbox-close:hover {
+  background: rgba(0, 0, 0, 0.72);
 }

@@ -90,13 +90,6 @@
     setImage($("vic-image"), $("vic-blur"), photo.image, photo.caption || vic.label);
     $("vic-counter").textContent = vic.index + 1 + " of " + n;
     $("vic-caption").textContent = photo.caption || vic.label || "";
-
-    const thumbs = $("vic-thumbs").children;
-    for (let k = 0; k < thumbs.length; k++) {
-      thumbs[k].classList.toggle("active", k === vic.index);
-    }
-    const active = thumbs[vic.index];
-    if (active) active.scrollIntoView({ inline: "center", block: "nearest" });
   }
 
   function vicStopAutoplay() {
@@ -138,25 +131,6 @@
     } else {
       pill.hidden = true;
     }
-
-    const strip = $("vic-thumbs");
-    strip.textContent = "";
-    photos.forEach(function (photo, i) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "thumb";
-      btn.title = photo.caption || "Photo " + (i + 1);
-      const img = document.createElement("img");
-      img.referrerPolicy = "no-referrer";
-      img.alt = "";
-      img.src = photo.image;
-      btn.appendChild(img);
-      btn.addEventListener("click", function () {
-        vicSetPlaying(false);
-        vicShow(i);
-      });
-      strip.appendChild(btn);
-    });
 
     if (photos.length === 0) {
       $("vic-daylabel").textContent = "Vicharan updates aren’t available right now";
@@ -250,6 +224,39 @@
     });
     $("tab-swamishri").addEventListener("click", function () {
       if (!$("tab-swamishri").disabled) darshanSelectTab("swamishri");
+    });
+  }
+
+  // ---------- lightbox (full-screen image preview) ----------
+  function openLightbox(src, caption) {
+    if (!src) return;
+    $("lightbox-img").src = src;
+    const cap = $("lightbox-caption");
+    cap.textContent = caption || "";
+    cap.hidden = !caption;
+    $("lightbox").hidden = false;
+  }
+  function closeLightbox() {
+    $("lightbox").hidden = true;
+    $("lightbox-img").src = "";
+  }
+  function initLightbox() {
+    // Click the backdrop (anything but the image itself) or the close button
+    // to dismiss.
+    $("lightbox").addEventListener("click", function (e) {
+      if (e.target !== $("lightbox-img")) closeLightbox();
+    });
+    $("lightbox-close").addEventListener("click", closeLightbox);
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") closeLightbox();
+    });
+    $("vic-image").addEventListener("click", function () {
+      const photo = vic.photos[vic.index];
+      if (photo) openLightbox(photo.image, photo.caption || vic.label);
+    });
+    $("darshan-image").addEventListener("click", function () {
+      const current = darshanActive()[darshan.index];
+      if (current) openLightbox(current.src, current.caption);
     });
   }
 
@@ -397,6 +404,7 @@
     initQuickLinks();
     initVicharanControls();
     initDarshanControls();
+    initLightbox();
 
     const cached = loadCache();
     if (cached) render(cached);
