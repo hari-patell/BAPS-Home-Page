@@ -11,10 +11,13 @@ export interface DashboardOptions {
 }
 
 async function scrapeDashboard(opts: DashboardOptions): Promise<DashboardData> {
-  const [satsang, vicharan] = await Promise.all([
-    getDailySatsang(opts),
-    getVicharan(opts),
-  ]);
+  // Sequential, not parallel. Two simultaneous navigations to the same host
+  // can prompt Cloudflare to issue a fresh challenge mid-flight — that
+  // showed up as one source succeeding while the other came back "still
+  // challenged". Each scrape is only a few seconds, so serialising costs
+  // little and removes the race.
+  const satsang = await getDailySatsang(opts);
+  const vicharan = await getVicharan(opts);
 
   return {
     satsang,
