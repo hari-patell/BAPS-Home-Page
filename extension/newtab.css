@@ -1,0 +1,593 @@
+/* Design tokens mirror src/app/globals.css so the extension matches the site. */
+:root {
+  --nishtha: #6b2b15;
+  --shurvirta: #fbb042;
+  --asmita: #fff1da;
+  --niyam: #275071;
+  --dharma: #e88838;
+  --ink: #1c0f08;
+  --ink-2: #2a150b;
+
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-gu: "Noto Sans Gujarati", "Nirmala UI", "Shruti", var(--font-body);
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  min-height: 100vh;
+}
+
+body {
+  color: var(--asmita);
+  font-family: var(--font-body);
+  background-color: var(--ink);
+  background-image:
+    radial-gradient(120% 90% at 12% -10%, color-mix(in srgb, var(--nishtha) 55%, transparent) 0%, transparent 60%),
+    radial-gradient(90% 70% at 105% 10%, color-mix(in srgb, var(--dharma) 22%, transparent) 0%, transparent 55%),
+    linear-gradient(180deg, var(--ink-2) 0%, var(--ink) 45%, #120a05 100%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+.gu,
+[lang="gu"] {
+  font-family: var(--font-gu);
+}
+
+::selection {
+  background: var(--shurvirta);
+  color: var(--ink);
+}
+
+a {
+  color: inherit;
+}
+
+.page {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+/* ---------- Header ---------- */
+.header {
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  color: color-mix(in srgb, var(--shurvirta) 90%, transparent);
+}
+.brand-rule {
+  height: 1px;
+  width: 4rem;
+  background: color-mix(in srgb, var(--shurvirta) 40%, transparent);
+}
+.brand-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
+}
+
+.header-row {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+@media (min-width: 1024px) {
+  .header-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.clock-time {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 2.75rem;
+  line-height: 1;
+}
+.clock-date {
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--asmita) 60%, transparent);
+}
+
+.search {
+  position: relative;
+  width: 100%;
+}
+@media (min-width: 1024px) {
+  .search {
+    max-width: 36rem;
+  }
+}
+.search-icon {
+  position: absolute;
+  left: 1.1rem;
+  top: 50%;
+  width: 1.1rem;
+  height: 1.1rem;
+  transform: translateY(-50%);
+  color: color-mix(in srgb, var(--asmita) 45%, transparent);
+}
+.search-input {
+  width: 100%;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--asmita) 12%, transparent);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--asmita);
+  font-size: 0.95rem;
+  padding: 0.85rem 1.25rem 0.85rem 2.9rem;
+  outline: none;
+  backdrop-filter: blur(6px);
+}
+.search-input::placeholder {
+  color: color-mix(in srgb, var(--asmita) 40%, transparent);
+}
+.search-input:focus {
+  border-color: color-mix(in srgb, var(--shurvirta) 55%, transparent);
+}
+
+.datenav {
+  text-align: right;
+}
+.datenav-date {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+}
+.datenav-hindu {
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--shurvirta) 85%, transparent);
+}
+
+.quicklinks {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+}
+@media (min-width: 1024px) {
+  .quicklinks {
+    justify-content: flex-start;
+  }
+}
+.quicklink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--asmita) 12%, transparent);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.5rem 0.95rem;
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--asmita) 75%, transparent);
+  text-decoration: none;
+  transition: border-color 0.2s, color 0.2s;
+}
+.quicklink:hover {
+  border-color: color-mix(in srgb, var(--shurvirta) 45%, transparent);
+  color: var(--shurvirta);
+}
+
+/* ---------- Main ---------- */
+.main {
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 2.5rem;
+  flex: 1;
+}
+
+.card {
+  border-radius: 1.5rem;
+  border: 1px solid color-mix(in srgb, var(--asmita) 10%, transparent);
+  background: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+}
+
+.card-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.15rem;
+  color: var(--dharma);
+}
+
+.eyebrow {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--shurvirta) 80%, transparent);
+}
+
+/* ---------- Vicharan ---------- */
+.vicharan {
+  display: flex;
+  flex-direction: column;
+  height: 440px;
+}
+@media (max-width: 640px) {
+  .vicharan {
+    height: 380px;
+  }
+}
+.vicharan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 1.1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--asmita) 10%, transparent);
+  background: rgba(0, 0, 0, 0.2);
+}
+.vicharan-daylabel {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.schedule-pill {
+  flex-shrink: 0;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--dharma) 30%, transparent);
+  padding: 0.4rem 0.8rem;
+  font-size: 0.75rem;
+  color: var(--dharma);
+  text-decoration: none;
+}
+.schedule-pill:hover {
+  background: color-mix(in srgb, var(--dharma) 10%, transparent);
+}
+
+.vicharan-stage,
+.darshan-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.stage-blur {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.1);
+  opacity: 0.45;
+  filter: blur(28px);
+}
+.stage-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  animation: fade-in 0.4s ease-out;
+}
+.stage-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.05) 55%, transparent);
+  pointer-events: none;
+}
+.stage-top {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.counter {
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--asmita) 80%, transparent);
+  backdrop-filter: blur(4px);
+}
+.round-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.1rem;
+  width: 2.1rem;
+  border-radius: 999px;
+  border: none;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--asmita);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.2s;
+}
+.round-btn:hover {
+  background: rgba(0, 0, 0, 0.72);
+}
+.stage-caption,
+.darshan-caption {
+  position: absolute;
+}
+.stage-caption {
+  position: absolute;
+  left: 1.1rem;
+  right: 7rem;
+  bottom: 1rem;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+.stage-nav {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.thumbstrip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--asmita) 10%, transparent);
+  background: rgba(0, 0, 0, 0.2);
+  scrollbar-width: none;
+}
+.thumbstrip::-webkit-scrollbar {
+  display: none;
+}
+.thumb {
+  flex-shrink: 0;
+  height: 2.75rem;
+  width: 2.75rem;
+  padding: 0;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--asmita) 10%, transparent);
+  overflow: hidden;
+  cursor: pointer;
+  opacity: 0.7;
+  background: rgba(0, 0, 0, 0.3);
+  transition: opacity 0.2s, border-color 0.2s;
+}
+.thumb img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+  display: block;
+}
+.thumb:hover {
+  opacity: 1;
+}
+.thumb.active {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--shurvirta) 70%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--shurvirta) 40%, transparent);
+}
+
+/* ---------- Darshan ---------- */
+.darshan {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  height: 440px;
+}
+.darshan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 0;
+}
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--asmita) 10%, transparent);
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.25rem;
+  font-size: 0.75rem;
+}
+.tab {
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--asmita) 40%, transparent);
+  padding: 0.3rem 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.tab:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.tab.active[data-tab="murti"] {
+  background: color-mix(in srgb, var(--asmita) 10%, transparent);
+  color: var(--asmita);
+}
+.tab.active[data-tab="swamishri"] {
+  background: var(--shurvirta);
+  color: var(--ink);
+  font-weight: 600;
+}
+.darshan-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.darshan-stage {
+  margin: 1rem 1.25rem 0;
+  border-radius: 1rem;
+}
+.darshan-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  animation: fade-in 0.4s ease-out;
+}
+.darshan-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem 1rem;
+}
+.darshan-caption {
+  position: static;
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--asmita) 60%, transparent);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.dots {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.25rem;
+}
+.dot {
+  height: 0.4rem;
+  width: 0.4rem;
+  border-radius: 999px;
+  border: none;
+  padding: 0;
+  background: color-mix(in srgb, var(--asmita) 20%, transparent);
+  cursor: pointer;
+}
+.dot.active {
+  background: var(--shurvirta);
+}
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  text-align: center;
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--asmita) 40%, transparent);
+}
+
+/* ---------- Text + audio cards ---------- */
+.cards-grid {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+@media (min-width: 1024px) {
+  .cards-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.text-card {
+  padding: 1.25rem 1.35rem;
+}
+.text-card-body {
+  margin-top: 0.85rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--asmita) 82%, transparent);
+  max-height: 15rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--shurvirta) 45%, transparent) transparent;
+}
+.text-card-body::-webkit-scrollbar {
+  width: 6px;
+}
+.text-card-body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--shurvirta) 45%, transparent);
+  border-radius: 999px;
+}
+.text-title {
+  font-weight: 700;
+  color: var(--asmita);
+  margin-bottom: 0.5rem;
+}
+.text-citation {
+  margin-top: 0.6rem;
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--shurvirta) 80%, transparent);
+}
+.muted {
+  color: color-mix(in srgb, var(--asmita) 40%, transparent);
+}
+
+.audio-track {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--asmita) 8%, transparent);
+}
+.audio-track:last-child {
+  border-bottom: none;
+}
+.audio-track-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.audio-track audio {
+  width: 100%;
+  height: 2rem;
+}
+
+.status {
+  margin-top: 1rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--asmita) 45%, transparent);
+}
+
+.footer {
+  padding: 1.5rem;
+  text-align: center;
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--asmita) 35%, transparent);
+}
+.footer a {
+  color: color-mix(in srgb, var(--shurvirta) 80%, transparent);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

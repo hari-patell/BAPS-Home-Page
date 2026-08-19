@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BAPS Daily Darshan</title>
+    <link rel="stylesheet" href="newtab.css" />
+  </head>
+  <body>
+    <div class="page">
+      <!-- Header -->
+      <header class="header">
+        <div class="brand">
+          <span class="brand-rule"></span>
+          <h1 class="brand-title">Jay Swaminarayan</h1>
+          <span class="brand-rule"></span>
+        </div>
+
+        <div class="header-row">
+          <div class="clock">
+            <div class="clock-time" id="clock-time">--:--</div>
+            <div class="clock-date" id="clock-date"></div>
+          </div>
+
+          <form class="search" id="search-form">
+            <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" />
+              <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            <input
+              id="search-input"
+              class="search-input"
+              type="text"
+              placeholder="Search or type a URL"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </form>
+
+          <div class="datenav">
+            <div class="datenav-date" id="greg-date"></div>
+            <div class="datenav-hindu" id="hindu-date"></div>
+          </div>
+        </div>
+
+        <nav class="quicklinks" id="quicklinks" aria-label="Quick links"></nav>
+      </header>
+
+      <main class="main">
+        <!-- Row 1: latest Vicharan -->
+        <section class="vicharan card" id="vicharan-card">
+          <div class="vicharan-head">
+            <div class="vicharan-head-text">
+              <p class="eyebrow">Latest Vicharan</p>
+              <p class="vicharan-daylabel" id="vic-daylabel">Loading…</p>
+            </div>
+            <a class="schedule-pill" id="vic-schedule" target="_blank" rel="noreferrer" hidden></a>
+          </div>
+
+          <div class="vicharan-stage" id="vic-stage">
+            <img class="stage-blur" id="vic-blur" alt="" aria-hidden="true" referrerpolicy="no-referrer" />
+            <img class="stage-img" id="vic-image" alt="Vicharan" referrerpolicy="no-referrer" />
+            <div class="stage-scrim"></div>
+
+            <div class="stage-top">
+              <span class="counter" id="vic-counter">–</span>
+              <button class="round-btn" id="vic-playpause" type="button" aria-label="Pause slideshow">
+                <span id="vic-playpause-icon">❚❚</span>
+              </button>
+            </div>
+
+            <p class="stage-caption" id="vic-caption"></p>
+
+            <div class="stage-nav">
+              <button class="round-btn" id="vic-prev" type="button" aria-label="Previous photo">‹</button>
+              <button class="round-btn" id="vic-next" type="button" aria-label="Next photo">›</button>
+            </div>
+          </div>
+
+          <div class="thumbstrip" id="vic-thumbs"></div>
+        </section>
+
+        <!-- Row 2: Darshan -->
+        <section class="darshan card" id="darshan-card">
+          <div class="darshan-head">
+            <h2 class="card-title">Darshan</h2>
+            <div class="tabs" id="darshan-tabs">
+              <button class="tab" id="tab-murti" type="button" data-tab="murti">Murti</button>
+              <button class="tab" id="tab-swamishri" type="button" data-tab="swamishri">Swamishri</button>
+            </div>
+          </div>
+          <div class="darshan-body" id="darshan-body">
+            <div class="darshan-stage" id="darshan-stage">
+              <img class="stage-blur" id="darshan-blur" alt="" aria-hidden="true" referrerpolicy="no-referrer" />
+              <img class="darshan-img" id="darshan-image" alt="Darshan" referrerpolicy="no-referrer" />
+            </div>
+            <div class="darshan-foot">
+              <p class="darshan-caption" id="darshan-caption"></p>
+              <div class="dots" id="darshan-dots"></div>
+            </div>
+          </div>
+          <div class="empty" id="darshan-empty" hidden>Darshan photos aren’t available right now.</div>
+        </section>
+
+        <!-- Row 3: reading + audio -->
+        <section class="cards-grid">
+          <article class="card text-card">
+            <h2 class="card-title gu" id="prerna-heading">પ્રેરણા પરિમલ</h2>
+            <div id="prerna-body" class="text-card-body">
+              <p class="muted">Not available right now.</p>
+            </div>
+          </article>
+
+          <article class="card text-card">
+            <h2 class="card-title">Vachanamrut Gems</h2>
+            <div id="vachanamrut-body" class="text-card-body">
+              <p class="muted">Not available right now.</p>
+            </div>
+          </article>
+
+          <article class="card text-card">
+            <h2 class="card-title">Daily Audio</h2>
+            <div id="audio-body" class="text-card-body">
+              <p class="muted">No audio available right now.</p>
+            </div>
+          </article>
+        </section>
+
+        <p class="status" id="status" hidden></p>
+      </main>
+
+      <footer class="footer">
+        Content pulled live from
+        <a href="https://www.baps.org/" target="_blank" rel="noreferrer">baps.org</a>.
+        Images &amp; content © BAPS Swaminarayan Sanstha.
+      </footer>
+    </div>
+
+    <script src="scrape.js"></script>
+    <script src="newtab.js"></script>
+  </body>
+</html>
