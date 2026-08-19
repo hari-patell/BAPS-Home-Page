@@ -2,10 +2,11 @@ import * as cheerio from "cheerio";
 import { SOURCES } from "@/lib/config";
 import type { DailySatsangData, TextBlock } from "@/lib/types";
 import { cleanText, fetchHtml } from "./fetchHtml";
-import type { ImageCandidate } from "./browserFetch";
 import {
+  type ImageCandidate,
   SAMVAT_RE,
   collectAudioSources,
+  collectImages,
   findHeading,
   findLargestGujaratiBlock,
   toContentImages,
@@ -119,13 +120,16 @@ function bucketDarshanImages(
  */
 const AUDIO_TITLES = ["Vachanamrut", "Swamini Vato", "Katha"];
 
-export async function getDailySatsang(): Promise<DailySatsangData> {
+export async function getDailySatsang(
+  { fresh = false }: { fresh?: boolean } = {},
+): Promise<DailySatsangData> {
   const sourceUrl = SOURCES.dailySatsang;
   const fetchedAt = new Date().toISOString();
 
   try {
-    const { html, images } = await fetchHtml(sourceUrl);
+    const html = await fetchHtml(sourceUrl, { revalidate: fresh ? false : 1800 });
     const $ = cheerio.load(html);
+    const images = collectImages($, sourceUrl);
 
     // Audio URLs live inside inline <script> jPlayer calls, so read those
     // out before stripping scripts for the text heuristics.

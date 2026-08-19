@@ -4,6 +4,8 @@ import {
   dateFromFilename,
   isLikelyChromeImage,
   collectAudioSources,
+  collectImages,
+  toContentImages,
 } from "../src/lib/scrape/heuristics.ts";
 import * as cheerio from "cheerio";
 
@@ -85,6 +87,31 @@ const $g = cheerio.load(gujHtml);
 $g("script, style, noscript").remove();
 const text = $g("body").text().replace(/\s+/g, " ").trim();
 check("no CSS leaked into text", !text.includes("ui-datepicker") && !text.includes("var a"), text.slice(0, 60));
+
+console.log("\n=== cheerio image collection (vicharan grid shape) ===");
+// Mirrors the real listing: thumbnail inside an <a>, caption text in the
+// sibling cell rather than inside the link.
+const gridHtml = `<html><body>
+  <img src="/images/baps_logo.svg">
+  <table><tr>
+    <td><a href="/Vicharan/2026/04-August-2026-31724.aspx"><img src="//Data/Sites/1/Media/OtherImages/31724/Thumbnails/20260804_i.jpg"></a></td>
+  </tr><tr>
+    <td>4-Aug-2026 - Sarangpur, India</td>
+  </tr></table>
+</body></html>`;
+const $grid = cheerio.load(gridHtml);
+const imgs = toContentImages(collectImages($grid, "https://www.baps.org/vicharan.aspx"));
+check("logo excluded, 1 content image", imgs.length === 1, `got ${imgs.length}`);
+if (imgs[0]) {
+  check("absolute src", imgs[0].src.startsWith("https://www.baps.org/"), imgs[0].src);
+  check("href captured", (imgs[0].href || "").includes("04-August-2026-31724"), imgs[0].href);
+}
+
+// A genuinely protocol-relative URL (dotted host) must still be respected.
+const pr = cheerio.load(`<img src="//cdn.example.com/Media/x.jpg">`);
+const prImgs = collectImages(pr, "https://www.baps.org/vicharan.aspx");
+check("real protocol-relative host preserved",
+  prImgs[0]?.src === "https://cdn.example.com/Media/x.jpg", prImgs[0]?.src);
 
 console.log(`\n${failed === 0 ? "ALL PASS" : failed + " FAILED"}`);
 process.exit(failed === 0 ? 0 : 1);

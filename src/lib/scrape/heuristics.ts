@@ -1,7 +1,15 @@
 import type { CheerioAPI, Cheerio } from "cheerio";
 import type { AnyNode } from "domhandler";
 import { absoluteUrl, cleanText } from "./fetchHtml";
-import type { ImageCandidate } from "./browserFetch";
+
+export interface ImageCandidate {
+  src: string;
+  alt: string;
+  title: string;
+  caption: string;
+  /** Set when the image is wrapped in a link (gallery grids). */
+  href?: string;
+}
 
 export const GUJARATI_RE = /[઀-૿]/;
 export const SAMVAT_RE =
@@ -30,8 +38,8 @@ const CONTENT_MEDIA_RE = /\/Media\//i;
 const SITE_CHROME_PATH_RE = /\/images\//i;
 
 /**
- * Secondary filter on top of browserFetch's size threshold. Path is the
- * primary signal; alt/title/filename keywords only decide images that
+ * Decides whether an image is site furniture rather than content. Path is
+ * the primary signal; alt/title/filename keywords only decide images that
  * aren't clearly under a media path.
  */
 export function isLikelyChromeImage(candidate: {
@@ -46,6 +54,54 @@ export function isLikelyChromeImage(candidate: {
 
 export function toContentImages<T extends ImageCandidate>(candidates: T[]): T[] {
   return candidates.filter((c) => !isLikelyChromeImage(c));
+}
+
+/**
+ * Collects <img> candidates from parsed HTML, in document order.
+ *
+ * Captions are looked for progressively outward — alt/title, then the
+ * enclosing link, then the parent, then the parent's next sibling — because
+ * baps.org puts the caption in a different place on each page (inside the
+ * <a> on some grids, in a sibling cell on others), and the real photos
+ * carry no alt text at all.
+ */
+export function collectImages($: CheerioAPI, baseUrl: string): ImageCandidate[] {
+  const seen = new Set<string>();
+  const out: ImageCandidate[] = [];
+
+  $("img").each((_, el) => {
+    const node = $(el);
+    const raw =
+      node.attr("src") ||
+      node.attr("data-src") ||
+      node.attr("data-lazy-src") ||
+      node.attr("data-original") ||
+      "";
+    const src = absoluteUrl(baseUrl, raw);
+    if (!src || seen.has(src)) return;
+    seen.add(src);
+
+    const alt = cleanText(node.attr("alt"));
+    const title = cleanText(node.attr("title"));
+    const anchor = node.closest("a");
+
+    let caption = alt || title;
+    for (const candidate of [anchor, node.parent(), node.parent().next()]) {
+      if (caption) break;
+      const text = cleanText(candidate?.text());
+      if (text && text.length <= 200) caption = text;
+    }
+
+    out.push({
+      src,
+      alt,
+      title,
+      caption,
+      href: absoluteUrl(baseUrl, anchor?.attr("href")),
+    });
+  });
+
+  return out;
 }
 
 /** Pulls a `D-Mon-YYYY` date out of a media filename's YYYYMMDD stamp. */

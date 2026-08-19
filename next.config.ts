@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
-// The routes that launch a headless browser (see src/lib/scrape/browserFetch.ts).
+// The routes that may launch Chromium to earn Cloudflare clearance
+// (see src/lib/scrape/clearance.ts).
 const BROWSER_ROUTES = ["/", "/api/dashboard", "/api/debug"];
 
 // @sparticuz/chromium ships its actual Chromium binary as compressed files

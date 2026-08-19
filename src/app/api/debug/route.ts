@@ -1,52 +1,55 @@
 import { NextResponse } from "next/server";
 import { SOURCES } from "@/lib/config";
 import { getDashboardData } from "@/lib/data";
-import { probeRenderedPage } from "@/lib/scrape/browserFetch";
+import { fetchHtml } from "@/lib/scrape/fetchHtml";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/**
+ * Diagnostic endpoint, not linked from the UI. This is how selector
+ * accuracy — and whether Cloudflare clearance is working at all (see
+ * lib/scrape/clearance.ts) — gets checked against the live site after a
+ * deploy, since baps.org is unreachable from the dev sandbox.
+ */
 async function probe(url: string) {
   try {
-    return await probeRenderedPage(url);
+    const html = await fetchHtml(url);
+    const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+    return {
+      ok: true,
+      htmlLength: html.length,
+      title: title?.replace(/\s+/g, " ").trim(),
+      looksLikeChallenge: /just a moment/i.test(html),
+    };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
-/**
- * Diagnostic endpoint, not linked from the UI. baps.org is unreachable from
- * the sandbox this app was developed in, so selectors in lib/scrape were
- * written against best-effort heuristics rather than inspected markup. This
- * route (fetched from Vercel's unrestricted network) is how selector
- * accuracy — and whether the headless-browser render actually got past
- * Cloudflare's challenge (see lib/scrape/browserFetch.ts) — gets checked
- * after each deploy.
- */
 export async function GET() {
-  // Sequential on purpose. Each step drives a headless Chrome page, and
-  // running the full dashboard scrape alongside both probes was enough
-  // concurrent Chrome to kill the browser outright ("Connection closed.").
-  // This route is a diagnostic, so trading latency for reliability is the
-  // right call.
-  const satsangProbe = await probe(SOURCES.dailySatsang);
-  const vicharanProbe = await probe(SOURCES.vicharan);
+  const dailySatsang = await probe(SOURCES.dailySatsang);
+  const vicharan = await probe(SOURCES.vicharan);
   const data = await getDashboardData();
 
   return NextResponse.json(
     {
-      probe: { dailySatsang: satsangProbe, vicharan: vicharanProbe },
+      probe: { dailySatsang, vicharan },
       summary: {
         hinduDate: data.satsang.hinduDate,
         prernaParimalFound: Boolean(data.satsang.prernaParimal),
+        prernaParimalPreview: data.satsang.prernaParimal?.body?.slice(0, 120),
         vachanamrutGemsFound: Boolean(data.satsang.vachanamrutGems),
         audioTracksFound: data.satsang.audio.length,
-        murtiImagesFound: data.satsang.darshan.murti.length,
-        swamishriImagesFound: data.satsang.darshan.swamishri.length,
+        audioTitles: data.satsang.audio.map((a) => a.title),
+        murtiImages: data.satsang.darshan.murti.map((i) => i.src),
+        swamishriImages: data.satsang.darshan.swamishri.map((i) => i.src),
         vicharanEntriesFound: data.vicharan.entries.length,
+        vicharanSample: data.vicharan.entries.slice(0, 5),
         scheduleNote: data.vicharan.scheduleNote,
+        satsangError: data.satsang.error,
+        vicharanError: data.vicharan.error,
       },
-      data,
     },
     { headers: { "Cache-Control": "no-store" } },
   );

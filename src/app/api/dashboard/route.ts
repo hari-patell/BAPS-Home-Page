@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { getDashboardData } from "@/lib/data";
 
 export const runtime = "nodejs";
-// Headless-browser scraping (see lib/scrape/browserFetch.ts) can take
-// 15-20s to get past Cloudflare's challenge, well past the default 10s.
+// A cold start has to launch Chromium to earn Cloudflare clearance (see
+// lib/scrape/clearance.ts), which is well past the default 10s.
 export const maxDuration = 60;
 
 // Client-side "refresh" button hits this for a fresh, uncached pull.
 export async function GET() {
-  const data = await getDashboardData();
+  const data = await getDashboardData({ fresh: true });
   return NextResponse.json(data, {
     headers: { "Cache-Control": "no-store" },
   });

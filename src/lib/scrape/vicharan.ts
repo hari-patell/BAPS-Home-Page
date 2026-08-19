@@ -1,9 +1,10 @@
 import * as cheerio from "cheerio";
 import { SOURCES } from "@/lib/config";
 import type { VicharanData, VicharanEntry } from "@/lib/types";
-import { absoluteUrl, cleanText, fetchHtml, fetchHtmlWithLinks } from "./fetchHtml";
+import { absoluteUrl, cleanText, fetchHtml } from "./fetchHtml";
 import {
   DATE_TOKEN_RE,
+  collectImages,
   dateFromFilename,
   findHeading,
   toContentImages,
@@ -92,28 +93,37 @@ async function mapWithConcurrency<T, R>(
 // route's maxDuration budget.
 const DETAIL_FETCH_TIMEOUT_MS = 12000;
 
-async function fetchBetterPhoto(href: string): Promise<string | undefined> {
+async function fetchBetterPhoto(
+  href: string,
+  fresh: boolean,
+): Promise<string | undefined> {
   try {
-    const { images } = await fetchHtml(href, DETAIL_FETCH_TIMEOUT_MS);
-    const candidates = toContentImages(images);
-    if (candidates.length === 0) return undefined;
-    return candidates.reduce((best, c) =>
-      c.width * c.height > best.width * best.height ? c : best,
-    ).src;
+    const html = await fetchHtml(href, {
+      timeoutMs: DETAIL_FETCH_TIMEOUT_MS,
+      revalidate: fresh ? false : 3600,
+    });
+    const $ = cheerio.load(html);
+    const candidates = toContentImages(collectImages($, href));
+    // Detail pages put the full-size photo under the same /Media/ tree but
+    // outside /Thumbnails/ — prefer that over any thumbnail echo.
+    const full = candidates.find((c) => !/\/Thumbnails\//i.test(c.src));
+    return (full ?? candidates[0])?.src;
   } catch {
     return undefined;
   }
 }
 
-export async function getVicharan(): Promise<VicharanData> {
+export async function getVicharan(
+  { fresh = false }: { fresh?: boolean } = {},
+): Promise<VicharanData> {
   const sourceUrl = SOURCES.vicharan;
   const fetchedAt = new Date().toISOString();
 
   try {
-    const { html, images } = await fetchHtmlWithLinks(sourceUrl);
+    const html = await fetchHtml(sourceUrl, { revalidate: fresh ? false : 1800 });
     const $ = cheerio.load(html);
 
-    const contentImages = toContentImages(images);
+    const contentImages = toContentImages(collectImages($, sourceUrl));
 
     // The caption text ("4-Aug-2026 - Sarangpur, India") sits outside the
     // <a> in the listing markup, so the DOM scan often comes back with an
@@ -139,7 +149,7 @@ export async function getVicharan(): Promise<VicharanData> {
     const recent = parsed.slice(-MAX_DETAIL_FETCHES).reverse();
 
     const betterPhotos = await mapWithConcurrency(recent, DETAIL_FETCH_CONCURRENCY, (entry) =>
-      entry.href ? fetchBetterPhoto(entry.href) : Promise.resolve(undefined),
+      entry.href ? fetchBetterPhoto(entry.href, fresh) : Promise.resolve(undefined),
     );
 
     const entries: VicharanEntry[] = recent.map((entry, i) => ({

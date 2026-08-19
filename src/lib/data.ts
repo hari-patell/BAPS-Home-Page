@@ -2,10 +2,17 @@ import { getDailySatsang } from "./scrape/dailySatsang";
 import { getVicharan } from "./scrape/vicharan";
 import type { DashboardData } from "./types";
 
-export async function getDashboardData(): Promise<DashboardData> {
+export interface DashboardOptions {
+  /** Bypass the upstream cache — used by the UI's manual refresh. */
+  fresh?: boolean;
+}
+
+export async function getDashboardData(
+  opts: DashboardOptions = {},
+): Promise<DashboardData> {
   const [satsang, vicharan] = await Promise.all([
-    getDailySatsang(),
-    getVicharan(),
+    getDailySatsang(opts),
+    getVicharan(opts),
   ]);
 
   return {
