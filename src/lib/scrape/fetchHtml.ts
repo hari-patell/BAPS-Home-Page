@@ -1,4 +1,9 @@
-import { fetchRenderedPage, type RenderedContent } from "./browserFetch";
+import {
+  fetchRenderedPage,
+  fetchRenderedPageWithLinks,
+  type RenderedContent,
+  type RenderedContentWithLinks,
+} from "./browserFetch";
 
 /**
  * Fetches a page's rendered HTML and real-dimension image candidates via a
@@ -9,8 +14,18 @@ import { fetchRenderedPage, type RenderedContent } from "./browserFetch";
  * navigation isn't a cacheable fetch() call the way Next's data cache
  * expects.
  */
-export async function fetchHtml(url: string): Promise<RenderedContent> {
-  return fetchRenderedPage(url);
+export async function fetchHtml(
+  url: string,
+  timeoutMs?: number,
+): Promise<RenderedContent> {
+  return fetchRenderedPage(url, timeoutMs);
+}
+
+/** Like fetchHtml, but each image candidate also carries the detail-page link it's wrapped in, if any. */
+export async function fetchHtmlWithLinks(
+  url: string,
+): Promise<RenderedContentWithLinks> {
+  return fetchRenderedPageWithLinks(url);
 }
 
 export function absoluteUrl(

@@ -24,9 +24,7 @@ export function isLikelyChromeImage(candidate: {
   return CHROME_HINT_RE.test(`${candidate.alt} ${candidate.title} ${candidate.src}`);
 }
 
-export function toContentImages(
-  candidates: ImageCandidate[],
-): ImageCandidate[] {
+export function toContentImages<T extends ImageCandidate>(candidates: T[]): T[] {
   return candidates.filter((c) => !isLikelyChromeImage(c));
 }
 

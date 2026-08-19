@@ -143,6 +143,95 @@ async function extractImageCandidates(
   }, minSize);
 }
 
+export interface LinkedImageCandidate extends ImageCandidate {
+  href?: string;
+}
+
+/**
+ * Like extractImageCandidates, but keyed off `<a>` tags instead of bare
+ * images — for gallery grids where each thumbnail links to a detail page
+ * (baps.org's Vicharan listing is exactly this: a thumbnail + caption
+ * wrapped in a link to that day's own page).
+ */
+async function extractLinkedImageCandidates(
+  page: Page,
+  minSize: number,
+): Promise<LinkedImageCandidate[]> {
+  return page.evaluate((minSize: number) => {
+    const seen = new Set<string>();
+    const results: {
+      src: string;
+      href?: string;
+      alt: string;
+      title: string;
+      width: number;
+      height: number;
+      caption: string;
+    }[] = [];
+
+    const textOf = (el: Element | null): string =>
+      el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
+
+    document.querySelectorAll("a").forEach((a) => {
+      const img = a.querySelector("img");
+      let src = "";
+      let width = 0;
+      let height = 0;
+      let alt: string | null = null;
+      let title: string | null = null;
+
+      if (img) {
+        src =
+          img.currentSrc ||
+          img.src ||
+          img.getAttribute("data-src") ||
+          img.getAttribute("data-lazy-src") ||
+          "";
+        const rect = img.getBoundingClientRect();
+        width = Math.max(img.naturalWidth || 0, rect.width || 0);
+        height = Math.max(img.naturalHeight || 0, rect.height || 0);
+        alt = img.getAttribute("alt");
+        title = img.getAttribute("title");
+      } else {
+        const bgEl = a.matches("[style*='background-image']")
+          ? a
+          : a.querySelector<HTMLElement>("[style*='background-image']");
+        if (!bgEl) return;
+        const bg = getComputedStyle(bgEl).backgroundImage;
+        const match = bg.match(/url\((['"]?)(.*?)\1\)/);
+        if (!match) return;
+        src = match[2];
+        const rect = bgEl.getBoundingClientRect();
+        width = rect.width;
+        height = rect.height;
+        alt = bgEl.getAttribute("alt");
+        title = bgEl.getAttribute("title");
+      }
+
+      if (!src || seen.has(src) || width < minSize) return;
+      seen.add(src);
+
+      let caption = (alt || title || "").trim();
+      if (!caption) {
+        const t = textOf(a);
+        if (t && t.length < 200) caption = t;
+      }
+
+      results.push({
+        src,
+        href: a.href || undefined,
+        alt: alt || "",
+        title: title || "",
+        width,
+        height,
+        caption,
+      });
+    });
+
+    return results;
+  }, minSize);
+}
+
 interface RenderedPage {
   page: Page;
   response: Awaited<ReturnType<Page["goto"]>>;
@@ -187,6 +276,28 @@ export async function fetchRenderedPage(
     const [html, images] = await Promise.all([
       page.content(),
       extractImageCandidates(page, MIN_CONTENT_IMAGE_SIZE),
+    ]);
+    return { html, images };
+  } finally {
+    await page.close();
+  }
+}
+
+export interface RenderedContentWithLinks {
+  html: string;
+  images: LinkedImageCandidate[];
+}
+
+/** Like fetchRenderedPage, but image candidates include the detail-page link each one is wrapped in, if any. */
+export async function fetchRenderedPageWithLinks(
+  url: string,
+  timeoutMs = 25000,
+): Promise<RenderedContentWithLinks> {
+  const { page } = await renderPage(url, timeoutMs);
+  try {
+    const [html, images] = await Promise.all([
+      page.content(),
+      extractLinkedImageCandidates(page, MIN_CONTENT_IMAGE_SIZE),
     ]);
     return { html, images };
   } finally {
