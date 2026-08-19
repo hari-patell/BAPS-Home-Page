@@ -156,5 +156,30 @@ console.log("\n=== vicharan day-page links keyed by date ===");
   check("listing page itself is not a day page", map.size === 2, String(map.size));
 }
 
+console.log("\n=== day page: all full-size photos with captions ===");
+{
+  // A real day-page shape: full-size /Media/ photos each followed by a
+  // caption cell, plus neighbouring-day /Thumbnails/ links that must be
+  // dropped and site chrome that must be ignored.
+  const $ = cheerio.load(`
+    <img src="/images/baps_logo.svg">
+    <div><img src="//Data/Sites/1/Media/OtherImages/31775/20260818_01.jpg"></div>
+    <div>BAPS Shri Swaminarayan Mandir, Ahmedabad</div>
+    <div><img src="//Data/Sites/1/Media/OtherImages/31775/20260818_02.jpg"></div>
+    <div>Shri Ghanshyam Maharaj</div>
+    <a href="/Vicharan/2026/17-August-2026-31774.aspx">
+      <img src="//Data/Sites/1/Media/OtherImages/31774/Thumbnails/20260817_i.jpg">
+    </a>
+  `);
+  const candidates = toContentImages(collectImages($, "https://www.baps.org/Vicharan/2026/18-August-2026-31775.aspx"));
+  const photos = candidates
+    .filter((c) => !/\/Thumbnails\//i.test(c.src))
+    .map((c) => ({ image: c.src, caption: (c.caption || "").trim() || undefined }));
+  check("two full-size photos, thumbnail dropped", photos.length === 2, `got ${photos.length}`);
+  check("first caption", photos[0]?.caption === "BAPS Shri Swaminarayan Mandir, Ahmedabad", photos[0]?.caption);
+  check("second caption", photos[1]?.caption === "Shri Ghanshyam Maharaj", photos[1]?.caption);
+  check("no thumbnail leaked in", photos.every((p) => !/\/Thumbnails\//i.test(p.image)));
+}
+
 console.log(`\n${failed === 0 ? "ALL PASS" : failed + " FAILED"}`);
 process.exit(failed === 0 ? 0 : 1);

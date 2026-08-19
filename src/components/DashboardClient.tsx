@@ -35,7 +35,9 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
         <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
           <div className="h-[420px] lg:h-[560px] lg:flex-[2]">
             <VicharanCarousel
-              entries={data.vicharan.entries}
+              date={data.vicharan.date}
+              location={data.vicharan.location}
+              photos={data.vicharan.photos}
               scheduleNote={data.vicharan.scheduleNote}
               scheduleHref={data.vicharan.scheduleHref}
             />
