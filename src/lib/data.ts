@@ -26,10 +26,16 @@ async function scrapeDashboard(opts: DashboardOptions): Promise<DashboardData> {
   // Split rather than shared: Daily Satsang gets the first half of the
   // budget so it can't consume the whole thing and leave Vicharan with
   // nothing, which would lose half the dashboard rather than trimming it.
-  const deadline = Date.now() + SCRAPE_BUDGET_MS;
+  const start = Date.now();
+  const deadline = start + SCRAPE_BUDGET_MS;
+  // Daily Satsang is the content-heavy source (darshan, prerna, vachanamrut,
+  // audio) and the one most likely to be starved on a cold start. Vicharan now
+  // costs only a listing fetch plus a single day-page navigation — nothing like
+  // the old six-day detail phase — so Satsang gets the larger share of the
+  // budget, with Vicharan taking whatever remains up to the wall-clock ceiling.
   const satsang = await getDailySatsang({
     ...opts,
-    deadline: Date.now() + SCRAPE_BUDGET_MS / 2,
+    deadline: start + Math.round(SCRAPE_BUDGET_MS * 0.62),
   });
   const vicharan = await getVicharan({ ...opts, deadline });
 
@@ -41,16 +47,35 @@ async function scrapeDashboard(opts: DashboardOptions): Promise<DashboardData> {
 }
 
 /**
+ * Carries a scrape result out through a thrown rejection so it can be
+ * returned to the caller without being written to the cache — unstable_cache
+ * never caches a rejected promise.
+ */
+class IncompleteScrape extends Error {
+  constructor(readonly data: DashboardData) {
+    super("incomplete scrape");
+  }
+}
+
+/**
  * Caching lives here rather than on the fetches themselves: the scrape runs
  * through a headless browser (see scrape/clearance.ts), and Next's data
  * cache only wraps fetch(). unstable_cache wraps arbitrary async work, so
- * one scrape every 30 minutes serves every request in between.
+ * one good scrape every 30 minutes serves every request in between.
  *
- * A failed scrape is deliberately not cached — otherwise a single bad run
- * would pin empty states in place for the full window.
+ * A run that failed to get Daily Satsang — the content-heavy source — is
+ * deliberately kept out of the cache by throwing: otherwise a single bad
+ * cold run (challenged on a fresh serverless start) would pin the dashboard
+ * empty for the full 30-minute window, which is exactly the "everything's
+ * gone" state a transient challenge used to cause. Throwing means the next
+ * request re-scrapes instead of serving the poisoned result.
  */
 const cachedScrape = unstable_cache(
-  () => scrapeDashboard({}),
+  async () => {
+    const data = await scrapeDashboard({});
+    if (!data.satsang.ok) throw new IncompleteScrape(data);
+    return data;
+  },
   ["dashboard"],
   { revalidate: CACHE_SECONDS, tags: ["dashboard"] },
 );
@@ -60,10 +85,14 @@ export async function getDashboardData(
 ): Promise<DashboardData> {
   if (opts.fresh) return scrapeDashboard(opts);
 
-  const data = await cachedScrape();
-  if (data.satsang.ok || data.vicharan.ok) return data;
-
-  // Both sources failed in the cached run — retry live rather than serving
-  // a cached failure for the rest of the window.
-  return scrapeDashboard(opts);
+  try {
+    return await cachedScrape();
+  } catch (err) {
+    // The cached run was incomplete and therefore not cached. Return the
+    // freshest data it did produce rather than nothing — a Vicharan panel
+    // with a failed Satsang beats a blank page — and let the next request
+    // try again.
+    if (err instanceof IncompleteScrape) return err.data;
+    throw err;
+  }
 }
