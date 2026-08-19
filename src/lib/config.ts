@@ -4,12 +4,6 @@ export const SOURCES = {
   baseUrl: "https://www.baps.org/",
 };
 
-// How long fetched HTML is cached before Next.js re-fetches, in seconds.
-export const REVALIDATE_SECONDS = {
-  dailySatsang: 1800, // 30 min — new "Daily" content each morning
-  vicharan: 3600, // 1 hr — travel schedule updates less often
-};
-
 export interface QuickLink {
   label: string;
   href: string;

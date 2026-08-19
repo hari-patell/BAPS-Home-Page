@@ -19,16 +19,18 @@ matching) rather than brittle hard-coded selectors — see
 `src/lib/scrape/heuristics.ts`. Every scraper is wrapped so a parse failure
 degrades a single section to an empty state instead of breaking the page.
 
-- `src/lib/scrape/fetchHtml.ts` — fetch with a real browser UA + timeout
+- `src/lib/scrape/browserFetch.ts` — headless-Chromium page fetch (see below)
+- `src/lib/scrape/fetchHtml.ts` — thin wrapper other modules call into
 - `src/lib/scrape/dailySatsang.ts` — Darshan photos, Prerna Parimal,
   Vachanamrut Gems, Daily Audio, Hindu/Samvat date
 - `src/lib/scrape/vicharan.ts` — travel schedule entries + "schedule up to"
   link
 - `src/lib/data.ts` — combines both into one `DashboardData` payload
 
-Data is cached via Next.js ISR (`REVALIDATE_SECONDS` in `src/lib/config.ts`);
-the refresh icon in the UI calls `GET /api/dashboard` for an on-demand,
-uncached pull.
+Caching is page-level ISR (`export const revalidate` in `page.tsx`) rather
+than per-fetch, since a headless-browser navigation isn't a cacheable
+`fetch()` call the way Next's data cache expects. The refresh icon in the UI
+calls `GET /api/dashboard` for an on-demand, uncached pull instead.
 
 Images and audio are streamed through `GET /api/proxy?src=...`
 (`src/app/api/proxy/route.ts`) rather than linked to directly, since some
@@ -50,29 +52,38 @@ baps.org sits behind Cloudflare bot management: a direct server-side fetch
 gets back a "Just a moment..." challenge page (HTTP 403, `cf-mitigated:
 challenge`) instead of the real HTML, no matter what headers are sent —
 solving it requires executing JS in a browser-trusted environment, which a
-serverless `fetch()` can't do.
+plain `fetch()` can't do.
 
-To get past it, `fetchHtml.ts` routes requests through
-[ScraperAPI](https://www.scraperapi.com/) (with `render=true`, which renders
-the page in a real browser) whenever a `SCRAPER_API_KEY` environment
-variable is set. Without that variable it falls back to a direct fetch,
-which will keep 403ing on baps.org specifically.
+`src/lib/scrape/browserFetch.ts` gets past this by running an actual
+headless Chromium inside the Vercel function itself, via
+[`puppeteer-core`](https://www.npmjs.com/package/puppeteer-core) +
+[`@sparticuz/chromium`](https://github.com/Sparticuz/chromium) — the
+standard combo for running Chromium in AWS Lambda-style serverless
+runtimes. It navigates to the page, waits out Cloudflare's automatic
+JS challenge if one shows up, and hands the fully rendered HTML to the same
+cheerio parsers. No third-party API, no signup, no per-request cost beyond
+Vercel's own compute.
 
-To enable it:
+Trade-offs versus a plain fetch:
 
-1. Sign up at scraperapi.com (has a free trial tier) and copy your API key.
-2. In the Vercel dashboard: Project → Settings → Environment Variables → add
-   `SCRAPER_API_KEY` for Production (and Preview, if you want the preview
-   deployments to work too).
-3. Redeploy (or just wait for the next request — env vars apply to new
-   invocations immediately, no rebuild required).
-4. Hit `/api/debug` again — `scraperApiConfigured` should read `true`, and
-   `probe.dailySatsang.status` / `probe.vicharan.status` should be `200`
-   instead of `403`.
+- Slower: launching Chromium and waiting for the challenge to resolve can
+  take 10-20s (hence `maxDuration = 60` on the routes that call it, and a
+  warm browser instance is reused across requests within the same function
+  invocation to cut that down on subsequent calls).
+- Heavier: adds Chromium's binary to the deployed function. Vercel's build
+  tracing (and the fact that both packages are in Next's
+  `serverExternalPackages` default list) handles this automatically — no
+  `next.config.ts` changes needed.
+- Not an absolute guarantee: this passes Cloudflare's *automatic* JS
+  challenge (what baps.org currently serves), not an interactive CAPTCHA.
+  If Cloudflare ever escalates to that or starts scoring Vercel's IP ranges
+  as high-risk regardless, no free technique gets past it — a paid
+  unblocking API or BAPS granting direct access become the only options at
+  that point.
 
-Rendered ScraperAPI requests cost more credits than a plain fetch, so watch
-usage against your plan's limits if you lower `REVALIDATE_SECONDS` much
-below its defaults.
+Check `GET /api/debug` after deploying — `probe.dailySatsang.status` /
+`probe.vicharan.status` should read `200`, and `probe.*.challengeDetected`
+shows whether the interstitial actually appeared and had to be waited out.
 
 ## Project layout
 
@@ -85,7 +96,7 @@ src/
     api/debug/            # GET — raw scrape diagnostics (unlinked)
   components/            # one component per dashboard section, all presentational
   lib/
-    config.ts            # quick links, search engine, revalidate intervals
+    config.ts            # quick links, search engine URL, source URLs
     types.ts              # shared data shapes
     data.ts                # aggregates both scrapers
     scrape/                # cheerio-based parsers
@@ -111,12 +122,14 @@ Open [http://localhost:3000](http://localhost:3000).
 Edit `src/lib/config.ts` to change:
 
 - `QUICK_LINKS` — the icon row under the search bar
-- `REVALIDATE_SECONDS` — how often each source page is re-fetched
 - `SEARCH_ENGINE_URL` — where the search bar submits to
+
+How often the scrapers re-run is `export const revalidate` in `page.tsx` —
+Next requires that as a literal it can statically analyze, so it can't be
+pulled from `config.ts`.
 
 ## Deploy
 
 Deployed on [Vercel](https://vercel.com) — push to `main` (or connect the
-repo in the Vercel dashboard) and it builds with zero extra config. Add
-`SCRAPER_API_KEY` (see above) for the scrapers to actually get past
-baps.org's Cloudflare challenge in production.
+repo in the Vercel dashboard) and it builds with zero extra config or
+environment variables; the Cloudflare workaround above is self-contained.

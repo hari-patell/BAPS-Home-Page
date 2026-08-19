@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { REVALIDATE_SECONDS, SOURCES } from "@/lib/config";
+import { SOURCES } from "@/lib/config";
 import type { VicharanData, VicharanEntry } from "@/lib/types";
 import { absoluteUrl, cleanText, fetchHtml } from "./fetchHtml";
 import { DATE_TOKEN_RE, collectImages, findHeading } from "./heuristics";
@@ -23,7 +23,7 @@ export async function getVicharan(): Promise<VicharanData> {
   const fetchedAt = new Date().toISOString();
 
   try {
-    const html = await fetchHtml(sourceUrl, REVALIDATE_SECONDS.vicharan);
+    const html = await fetchHtml(sourceUrl);
     const $ = cheerio.load(html);
 
     const images = collectImages($, sourceUrl, { minWidth: 100 });

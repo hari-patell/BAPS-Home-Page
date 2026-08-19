@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { REVALIDATE_SECONDS, SOURCES } from "@/lib/config";
+import { SOURCES } from "@/lib/config";
 import type { DailySatsangData, TextBlock } from "@/lib/types";
 import { cleanText } from "./fetchHtml";
 import { fetchHtml } from "./fetchHtml";
@@ -95,7 +95,7 @@ export async function getDailySatsang(): Promise<DailySatsangData> {
   const fetchedAt = new Date().toISOString();
 
   try {
-    const html = await fetchHtml(sourceUrl, REVALIDATE_SECONDS.dailySatsang);
+    const html = await fetchHtml(sourceUrl);
     const $ = cheerio.load(html);
     const bodyText = cleanText($("body").text());
 
