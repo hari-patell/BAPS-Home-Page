@@ -28,8 +28,9 @@ const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 const CHALLENGE_TITLE_RE = /just a moment/i;
-const CHALLENGE_TIMEOUT_MS = 20000;
+const CHALLENGE_TIMEOUT_MS = 12000;
 const CLEARANCE_TTL_MS = 20 * 60 * 1000;
+const CHALLENGE_ATTEMPTS = 3;
 
 let browserPromise: Promise<Browser> | null = null;
 const clearedHosts = new Map<string, number>();
@@ -91,8 +92,28 @@ async function newPage(browser: Browser): Promise<Page> {
  * noise. Progress is judged from the browser's cookie jar, which is
  * browser-level state and immune to that churn.
  */
-async function clearHost(browser: Browser, url: string): Promise<void> {
+async function clearHost(
+  browser: Browser,
+  url: string,
+  force: boolean,
+): Promise<void> {
   const hostname = new URL(url).hostname;
+
+  // A stale cf_clearance is worse than none. The cookie survives long after
+  // Cloudflare stops honouring it, and the loop below treats *any*
+  // cf_clearance as proof of success — so a re-clear triggered by a
+  // challenged response would find the old cookie, return in milliseconds
+  // without solving anything, and the retry would be challenged again.
+  // That is exactly what "still challenged after re-clearing" was: a
+  // whole scrape failing in under a second. Dropping the cookie first
+  // means only a newly issued one can satisfy the check.
+  if (force) {
+    const stale = (await browser.cookies().catch(() => [])).filter(
+      (c) => c.name === "cf_clearance",
+    );
+    if (stale.length > 0) await browser.deleteCookie(...stale).catch(() => {});
+  }
+
   const page = await newPage(browser);
   try {
     await page
@@ -115,16 +136,22 @@ async function clearHost(browser: Browser, url: string): Promise<void> {
   }
 }
 
-async function ensureCleared(browser: Browser, url: string): Promise<void> {
+async function ensureCleared(
+  browser: Browser,
+  url: string,
+  force = false,
+): Promise<void> {
   const hostname = new URL(url).hostname;
-  const until = clearedHosts.get(hostname);
-  if (until && until > Date.now()) return;
+  if (!force) {
+    const until = clearedHosts.get(hostname);
+    if (until && until > Date.now()) return;
 
-  // Concurrent callers share one solve rather than each starting their own.
-  const existing = clearingInFlight.get(hostname);
-  if (existing) return existing;
+    // Concurrent callers share one solve rather than each starting their own.
+    const existing = clearingInFlight.get(hostname);
+    if (existing) return existing;
+  }
 
-  const task = clearHost(browser, url)
+  const task = clearHost(browser, url, force)
     .then(() => {
       clearedHosts.set(hostname, Date.now() + CLEARANCE_TTL_MS);
     })
@@ -167,20 +194,32 @@ export async function fetchHtmlViaBrowser(
   url: string,
   timeoutMs = 20000,
 ): Promise<string> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Three genuine solve attempts could otherwise run past a minute on their
+  // own, and the caller only has 60s for the whole dashboard. Retries stop
+  // at this deadline even if attempts remain.
+  const deadline = Date.now() + timeoutMs * 2;
+
+  for (let attempt = 0; attempt < CHALLENGE_ATTEMPTS; attempt++) {
+    const last = attempt === CHALLENGE_ATTEMPTS - 1 || Date.now() > deadline;
     try {
       const browser = await getBrowser();
-      await ensureCleared(browser, url);
+      // Clearance covers a host, but Cloudflare still challenges individual
+      // URLs on it — a cleared session would load Daily-Satsang.aspx and
+      // then be challenged on vicharan.aspx. Every attempt after the first
+      // therefore forces a genuine re-solve rather than trusting the cookie.
+      await ensureCleared(browser, url, attempt > 0);
       const html = await navigateForHtml(browser, url, timeoutMs);
 
       if (CHALLENGE_TITLE_RE.test(html) && html.length < 60000) {
         invalidateClearance(url);
-        if (attempt === 1) throw new Error(`${url} still challenged after re-clearing`);
+        if (last) {
+          throw new Error(`${url} still challenged after ${attempt} re-clears`);
+        }
         continue;
       }
       return html;
     } catch (err) {
-      // A browser that died between invocations is worth one clean retry;
+      // A browser that died between invocations is worth a clean retry;
       // anything else on the final attempt is a real failure.
       if (isBrowserGone(err)) {
         const dead = await browserPromise?.catch(() => null);
@@ -188,7 +227,7 @@ export async function fetchHtmlViaBrowser(
         browserPromise = null;
         invalidateClearance();
       }
-      if (attempt === 1) throw err;
+      if (last) throw err;
     }
   }
   throw new Error(`${url} could not be fetched`);
