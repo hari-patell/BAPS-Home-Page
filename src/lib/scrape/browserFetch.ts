@@ -1,7 +1,6 @@
 import chromium from "@sparticuz/chromium";
-import puppeteerCore, { type Browser, type Page } from "puppeteer-core";
-import { addExtra } from "puppeteer-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import puppeteer, { type Browser, type Page } from "puppeteer-core";
+import { applyStealth } from "./stealth";
 
 /**
  * baps.org sits behind Cloudflare bot management: a plain server-side
@@ -15,17 +14,13 @@ import StealthPlugin from "puppeteer-extra-plugin-stealth";
  * serverless Lambda-style runtimes) instead of paying a third-party
  * unblocking API.
  *
- * A vanilla headless Chromium still carries a bunch of fingerprints
- * (`navigator.webdriver === true`, missing browser plugins, a SwiftShader
- * WebGL renderer string, etc.) that bot-management products check for
- * independently of whether the challenge's proof-of-work actually gets
- * solved — this showed up as the challenge simply never resolving
- * (`challengeDetected: true` forever, no amount of retrying helped).
- * puppeteer-extra's stealth plugin patches those tells; it's the standard
- * free countermeasure for exactly this, not a third-party service.
+ * A vanilla headless Chromium still carries fingerprints
+ * (`navigator.webdriver === true`, empty plugins, a SwiftShader WebGL
+ * renderer string) that bot management checks independently of whether the
+ * challenge's proof-of-work gets solved — that showed up as the challenge
+ * simply never resolving (`challengeDetected: true` forever, retries
+ * didn't help). ./stealth.ts patches those tells.
  */
-const puppeteer = addExtra(puppeteerCore);
-puppeteer.use(StealthPlugin());
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -47,9 +42,19 @@ let browserPromise: Promise<Browser> | null = null;
 
 async function launchBrowser(): Promise<Browser> {
   return puppeteer.launch({
-    args: await puppeteer.defaultArgs({ args: chromium.args, headless: "shell" }),
+    args: [
+      ...chromium.args,
+      // Stops Chrome advertising itself as automation-controlled — the
+      // companion to the navigator.webdriver patch in ./stealth.ts, since
+      // that flag is visible to the page before our script runs.
+      "--disable-blink-features=AutomationControlled",
+      "--lang=en-US,en",
+    ],
     executablePath: await chromium.executablePath(),
-    headless: "shell",
+    // Full headless Chrome rather than the old "shell" build: the shell is
+    // missing enough browser surface (extensions, some APIs) to be an
+    // easy tell on its own, which defeats the point of the patches.
+    headless: true,
   });
 }
 
@@ -277,7 +282,7 @@ interface RenderedPage {
 async function renderPage(url: string, timeoutMs: number): Promise<RenderedPage> {
   const browser = await getBrowser();
   const page = await browser.newPage();
-  await page.setUserAgent(UA);
+  await applyStealth(page, UA);
   await page.setViewport({ width: 1440, height: 900 });
 
   let response: Awaited<ReturnType<Page["goto"]>> = null;
