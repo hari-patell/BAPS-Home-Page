@@ -1,71 +1,27 @@
-import { getClearance, invalidateClearance } from "./clearance";
+import { fetchHtmlViaBrowser } from "./clearance";
 
-const CHALLENGE_MARKER_RE = /just a moment|cf-mitigated|challenge-platform/i;
-
-function headersFor(cookieHeader: string, userAgent: string): Record<string, string> {
-  return {
-    "User-Agent": userAgent,
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    // Must match the UA above; Cloudflare asks for these explicitly via its
-    // critical-ch response header, and a mismatch is itself a signal.
-    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
-    Cookie: cookieHeader,
-  };
-}
-
-/**
- * Fetches a page's HTML over plain HTTP, carrying the Cloudflare clearance
- * cookie earned by ./clearance.ts. No browser is involved here — see that
- * file for why reading pages through the browser was abandoned.
- *
- * If the response comes back as a challenge anyway (clearance expired, or
- * Cloudflare re-challenged), the clearance is re-earned once and the fetch
- * retried.
- */
 export interface FetchHtmlOptions {
   timeoutMs?: number;
   /**
-   * Seconds to cache the upstream response for, via Next's data cache.
-   * Defaults to 30 min so the page stays statically rendered under ISR;
-   * pass `false` to bypass the cache (the UI's refresh button does).
+   * Kept for call-site clarity, but no longer meaningful: fetches go
+   * through the browser (see ./clearance.ts), which Next's data cache
+   * can't wrap. Caching happens at the page level instead.
    */
   revalidate?: number | false;
 }
 
+/**
+ * Fetches a page's HTML from baps.org.
+ *
+ * Requests are issued by a real headless Chrome rather than fetch(),
+ * because Cloudflare binds its clearance to the TLS fingerprint — see
+ * ./clearance.ts for the full reasoning.
+ */
 export async function fetchHtml(
   url: string,
-  { timeoutMs = 12000, revalidate = 1800 }: FetchHtmlOptions = {},
+  { timeoutMs = 20000 }: FetchHtmlOptions = {},
 ): Promise<string> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const { cookieHeader, userAgent } = await getClearance(url, attempt > 0);
-    const res = await fetch(url, {
-      headers: headersFor(cookieHeader, userAgent),
-      signal: AbortSignal.timeout(timeoutMs),
-      ...(revalidate === false
-        ? { cache: "no-store" as const }
-        : { next: { revalidate } }),
-    });
-    const html = await res.text();
-
-    const challenged =
-      res.status === 403 ||
-      res.headers.get("cf-mitigated") === "challenge" ||
-      (html.length < 60000 && CHALLENGE_MARKER_RE.test(html));
-
-    if (!challenged) {
-      if (!res.ok) throw new Error(`${url} responded ${res.status} ${res.statusText}`);
-      return html;
-    }
-
-    invalidateClearance();
-    if (attempt === 1) {
-      throw new Error(`${url} still challenged after re-clearing (${res.status})`);
-    }
-  }
-  throw new Error(`${url} could not be fetched`);
+  return fetchHtmlViaBrowser(url, timeoutMs);
 }
 
 export function absoluteUrl(

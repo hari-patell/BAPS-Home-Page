@@ -12,16 +12,14 @@ import {
 
 const LOCATION_SPLIT_RE = /[—–-]\s*/;
 
-// The listing page has ~30+ entries per month, and each one's better photo
-// lives on its own detail page. These are plain HTTP fetches now (not
-// browser page loads), so they can run wide without memory cost — but they
-// still have to fit inside the function's 60s ceiling alongside Chromium
-// cold-start and the Cloudflare solve. One round of 8 parallel fetches with
-// a short timeout, plus an overall deadline, keeps the worst case bounded:
-// the previous 12-at-concurrency-2-with-12s-timeouts could alone consume
-// 72s and was what pushed the route into Vercel's timeout.
-const MAX_DETAIL_FETCHES = 8;
-const DETAIL_FETCH_CONCURRENCY = 8;
+// Each entry's better photo lives on its own detail page, and every one of
+// those is a real browser navigation (see lib/scrape/clearance.ts) — so
+// these cost both memory and time, and all of it has to fit inside the
+// function's 60s ceiling alongside Chromium cold-start and the Cloudflare
+// solve. Hence: few of them, a handful at a time, short per-page timeout,
+// and a hard deadline for the phase as a whole.
+const MAX_DETAIL_FETCHES = 6;
+const DETAIL_FETCH_CONCURRENCY = 3;
 const DETAIL_PHASE_BUDGET_MS = 15000;
 
 function splitDateLocation(
@@ -94,7 +92,7 @@ async function mapWithConcurrency<T, R>(
 // Short timeout — these are bonus fetches with a graceful thumbnail
 // fallback, so failing fast on a slow detail page beats risking the whole
 // route's maxDuration budget.
-const DETAIL_FETCH_TIMEOUT_MS = 7000;
+const DETAIL_FETCH_TIMEOUT_MS = 10000;
 
 async function fetchBetterPhoto(
   href: string,

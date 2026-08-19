@@ -1,46 +1,47 @@
 import chromium from "@sparticuz/chromium";
-import puppeteer, { type Browser } from "puppeteer-core";
+import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { applyStealth } from "./stealth";
 
 /**
- * Gets past baps.org's Cloudflare bot challenge, once, and hands back the
- * credentials needed to fetch the site over plain HTTP thereafter.
+ * Fetches baps.org pages through a real headless Chrome.
  *
- * Why it's split this way: solving the challenge genuinely needs a real
- * browser (it's a JS/proof-of-work check no HTTP client can pass). But
- * *reading* pages through that browser was a persistent source of
- * "Attempted to use detached Frame" — Cloudflare and the site both replace
- * the document mid-load, and any page read racing that dies. Cloudflare's
- * output is just a `cf_clearance` cookie, so once we hold it, ordinary
- * fetch() calls carrying that cookie are served normally. The browser runs
- * once per cold start instead of once per page, which also removes most of
- * the memory pressure and latency.
+ * Two hard-won constraints shape this file:
  *
- * The cookie is bound to the client IP and User-Agent, so every subsequent
- * request must reuse the exact UA below.
+ * 1. The request must genuinely originate from Chrome. baps.org sits behind
+ *    Cloudflare bot management, and its `cf_clearance` cookie is bound to
+ *    the TLS fingerprint as well as IP and User-Agent — transplanting the
+ *    cookie into Node's fetch() still came back 403, so the browser has to
+ *    issue the requests itself.
+ *
+ * 2. We must never read the page's DOM. Cloudflare and the site both tear
+ *    down and replace the document mid-load, and any page.content() /
+ *    evaluate() / title() racing that dies with "Attempted to use detached
+ *    Frame" — retrying doesn't help once a frame is gone for good. So the
+ *    HTML comes from the navigation *response* object instead, which is
+ *    just a network buffer and has no frame attached.
+ *
+ * The browser is reused across fetches within a warm instance; the
+ * challenge is solved once per host.
  */
 
-export const CLEARANCE_UA =
+const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 const CHALLENGE_TITLE_RE = /just a moment/i;
-// Kept well under the route's 60s ceiling: Chromium cold start plus this
-// solve, both page fetches and the Vicharan detail phase all have to fit.
 const CHALLENGE_TIMEOUT_MS = 20000;
-// Cloudflare clearance typically lasts far longer, but re-earning it is
-// cheap relative to serving stale failures, and a warm instance can live a
-// while.
 const CLEARANCE_TTL_MS = 20 * 60 * 1000;
 
-export interface Clearance {
-  cookieHeader: string;
-  userAgent: string;
-}
-
-let cached: { value: Clearance; expiresAt: number } | null = null;
-let inFlight: Promise<Clearance> | null = null;
+let browserPromise: Promise<Browser> | null = null;
+const clearedHosts = new Map<string, number>();
+const clearingInFlight = new Map<string, Promise<void>>();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isBrowserGone(err: unknown): boolean {
+  return /Connection closed|Target closed|Protocol error|Session closed|browser has disconnected/i.test(
+    String(err),
+  );
+}
 
 async function launchBrowser(): Promise<Browser> {
   return puppeteer.launch({
@@ -58,29 +59,42 @@ async function launchBrowser(): Promise<Browser> {
   });
 }
 
-function cookieHeaderFrom(
-  cookies: { name: string; value: string; domain: string }[],
-  hostname: string,
-): string {
-  return cookies
-    .filter((c) => hostname.endsWith(c.domain.replace(/^\./, "")))
-    .map((c) => `${c.name}=${c.value}`)
-    .join("; ");
+async function getBrowser(): Promise<Browser> {
+  if (browserPromise) {
+    const existing = await browserPromise.catch(() => null);
+    // `connected` alone isn't enough: a browser the serverless runtime
+    // froze between invocations can report connected and then throw on
+    // first use. version() is a cheap round-trip that proves it's alive.
+    if (existing?.connected) {
+      const alive = await existing.version().then(() => true).catch(() => false);
+      if (alive) return existing;
+      await existing.close().catch(() => {});
+    }
+    browserPromise = null;
+  }
+  browserPromise = launchBrowser();
+  return browserPromise;
 }
 
-async function solveChallenge(url: string): Promise<Clearance> {
-  const hostname = new URL(url).hostname;
-  const browser = await launchBrowser();
-  try {
-    const page = await browser.newPage();
-    await applyStealth(page, CLEARANCE_UA);
-    await page.setViewport({ width: 1440, height: 900 });
+async function newPage(browser: Browser): Promise<Page> {
+  const page = await browser.newPage();
+  await applyStealth(page, UA);
+  await page.setViewport({ width: 1440, height: 900 });
+  return page;
+}
 
-    // Every error here is swallowed deliberately: while the challenge runs,
-    // the document is torn down and replaced repeatedly, so navigation
-    // errors are expected noise. We never read from the page — the only
-    // output we want is the cookie, which lives on the browser, not the
-    // frame.
+/**
+ * Drives the Cloudflare challenge to completion for a host, once.
+ *
+ * Every error is swallowed on purpose: while the challenge runs the
+ * document is replaced repeatedly, so navigation failures are expected
+ * noise. Progress is judged from the browser's cookie jar, which is
+ * browser-level state and immune to that churn.
+ */
+async function clearHost(browser: Browser, url: string): Promise<void> {
+  const hostname = new URL(url).hostname;
+  const page = await newPage(browser);
+  try {
     await page
       .goto(url, { waitUntil: "domcontentloaded", timeout: CHALLENGE_TIMEOUT_MS })
       .catch(() => {});
@@ -92,48 +106,90 @@ async function solveChallenge(url: string): Promise<Clearance> {
         (c) => c.name === "cf_clearance" && hostname.endsWith(c.domain.replace(/^\./, "")),
       );
       const title = await page.title().catch(() => "");
-      if (cleared || (title && !CHALLENGE_TITLE_RE.test(title))) {
-        return {
-          cookieHeader: cookieHeaderFrom(cookies, hostname),
-          userAgent: CLEARANCE_UA,
-        };
-      }
-      if (Date.now() >= deadline) {
-        // Hand back whatever cookies exist rather than throwing: the caller
-        // will find out soon enough if they aren't good enough, and a
-        // partial jar still beats no attempt.
-        return {
-          cookieHeader: cookieHeaderFrom(cookies, hostname),
-          userAgent: CLEARANCE_UA,
-        };
-      }
+      if (cleared || (title && !CHALLENGE_TITLE_RE.test(title))) return;
+      if (Date.now() >= deadline) return;
       await sleep(1000);
     }
   } finally {
-    await browser.close().catch(() => {});
+    await page.close().catch(() => {});
+  }
+}
+
+async function ensureCleared(browser: Browser, url: string): Promise<void> {
+  const hostname = new URL(url).hostname;
+  const until = clearedHosts.get(hostname);
+  if (until && until > Date.now()) return;
+
+  // Concurrent callers share one solve rather than each starting their own.
+  const existing = clearingInFlight.get(hostname);
+  if (existing) return existing;
+
+  const task = clearHost(browser, url)
+    .then(() => {
+      clearedHosts.set(hostname, Date.now() + CLEARANCE_TTL_MS);
+    })
+    .finally(() => {
+      clearingInFlight.delete(hostname);
+    });
+  clearingInFlight.set(hostname, task);
+  return task;
+}
+
+export function invalidateClearance(url?: string): void {
+  if (url) clearedHosts.delete(new URL(url).hostname);
+  else clearedHosts.clear();
+}
+
+async function navigateForHtml(
+  browser: Browser,
+  url: string,
+  timeoutMs: number,
+): Promise<string> {
+  const page = await newPage(browser);
+  try {
+    const response = await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: timeoutMs,
+    });
+    if (!response) throw new Error(`${url} produced no response`);
+    // Read from the network response, never the DOM — see the file header.
+    return await response.text();
+  } finally {
+    await page.close().catch(() => {});
   }
 }
 
 /**
- * Returns cached clearance, or earns it. Concurrent callers share one
- * browser launch rather than each starting their own.
+ * Fetches a URL's HTML through the browser, solving the Cloudflare
+ * challenge first if this host hasn't been cleared recently.
  */
-export async function getClearance(url: string, forceRefresh = false): Promise<Clearance> {
-  if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.value;
-  if (!forceRefresh && inFlight) return inFlight;
+export async function fetchHtmlViaBrowser(
+  url: string,
+  timeoutMs = 20000,
+): Promise<string> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const browser = await getBrowser();
+      await ensureCleared(browser, url);
+      const html = await navigateForHtml(browser, url, timeoutMs);
 
-  inFlight = solveChallenge(url)
-    .then((value) => {
-      cached = { value, expiresAt: Date.now() + CLEARANCE_TTL_MS };
-      return value;
-    })
-    .finally(() => {
-      inFlight = null;
-    });
-
-  return inFlight;
-}
-
-export function invalidateClearance(): void {
-  cached = null;
+      if (CHALLENGE_TITLE_RE.test(html) && html.length < 60000) {
+        invalidateClearance(url);
+        if (attempt === 1) throw new Error(`${url} still challenged after re-clearing`);
+        continue;
+      }
+      return html;
+    } catch (err) {
+      // A browser that died between invocations is worth one clean retry;
+      // anything else on the final attempt is a real failure.
+      if (isBrowserGone(err)) {
+        const dead = await browserPromise?.catch(() => null);
+        await dead?.close().catch(() => {});
+        browserPromise = null;
+        invalidateClearance();
+      }
+      if (attempt === 1) throw err;
+    }
+  }
+  throw new Error(`${url} could not be fetched`);
 }
