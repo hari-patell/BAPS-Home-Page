@@ -50,6 +50,29 @@ async function getBrowser(): Promise<Browser> {
   return browserPromise;
 }
 
+/**
+ * Cloudflare's challenge can chain multiple client-side reloads while it
+ * resolves, and any Puppeteer call that touches the page mid-reload (not
+ * just the initial goto()) can throw a "detached Frame" error — title(),
+ * content(), evaluate(), all of it. Rather than special-case each call
+ * site, retry anything that hits this specific error a few times with a
+ * short pause, since the frame reliably settles down within a second or
+ * two once the reload chain finishes.
+ */
+async function retryOnDetachedFrame<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!/detached/i.test(String(err))) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+  }
+  throw lastErr;
+}
+
 /** Scrolls to the bottom in steps so lazy-loaded/below-the-fold images actually load. */
 async function autoScroll(page: Page): Promise<void> {
   await page.evaluate(async () => {
@@ -261,7 +284,9 @@ async function renderPage(url: string, timeoutMs: number): Promise<RenderedPage>
   // Cloudflare's automatic challenge resolves via a JS-triggered reload once
   // its proof-of-work check passes; wait for that follow-up navigation if
   // we're still looking at the interstitial.
-  const challengeDetected = CHALLENGE_TITLE_RE.test(await page.title());
+  const challengeDetected = CHALLENGE_TITLE_RE.test(
+    await retryOnDetachedFrame(() => page.title()),
+  );
   if (challengeDetected) {
     const nav = await page
       .waitForNavigation({ waitUntil: "networkidle2", timeout: timeoutMs })
@@ -269,7 +294,7 @@ async function renderPage(url: string, timeoutMs: number): Promise<RenderedPage>
     if (nav) response = nav;
   }
 
-  await autoScroll(page);
+  await retryOnDetachedFrame(() => autoScroll(page));
 
   return { page, response, challengeDetected };
 }
@@ -286,10 +311,10 @@ export async function fetchRenderedPage(
 ): Promise<RenderedContent> {
   const { page } = await renderPage(url, timeoutMs);
   try {
-    const [html, images] = await Promise.all([
-      page.content(),
+    const html = await retryOnDetachedFrame(() => page.content());
+    const images = await retryOnDetachedFrame(() =>
       extractImageCandidates(page, MIN_CONTENT_IMAGE_SIZE),
-    ]);
+    );
     return { html, images };
   } finally {
     await page.close();
@@ -308,10 +333,10 @@ export async function fetchRenderedPageWithLinks(
 ): Promise<RenderedContentWithLinks> {
   const { page } = await renderPage(url, timeoutMs);
   try {
-    const [html, images] = await Promise.all([
-      page.content(),
+    const html = await retryOnDetachedFrame(() => page.content());
+    const images = await retryOnDetachedFrame(() =>
       extractLinkedImageCandidates(page, MIN_CONTENT_IMAGE_SIZE),
-    ]);
+    );
     return { html, images };
   } finally {
     await page.close();
@@ -337,14 +362,14 @@ export async function probeRenderedPage(
 ): Promise<ProbeResult> {
   const { page, response, challengeDetected } = await renderPage(url, timeoutMs);
   try {
-    const [html, images] = await Promise.all([
-      page.content(),
+    const html = await retryOnDetachedFrame(() => page.content());
+    const images = await retryOnDetachedFrame(() =>
       extractImageCandidates(page, MIN_CONTENT_IMAGE_SIZE),
-    ]);
+    );
     return {
       status: response?.status(),
       finalUrl: page.url(),
-      title: await page.title(),
+      title: await retryOnDetachedFrame(() => page.title()),
       challengeDetected,
       headers: response?.headers() ?? {},
       htmlLength: html.length,
