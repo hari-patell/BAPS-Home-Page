@@ -2,15 +2,15 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "src/app/page.tsx": {
-      "memory": 3009,
+      "memory": 2048,
       "maxDuration": 60
     },
     "src/app/api/dashboard/route.ts": {
-      "memory": 3009,
+      "memory": 2048,
       "maxDuration": 60
     },
     "src/app/api/debug/route.ts": {
-      "memory": 3009,
+      "memory": 2048,
       "maxDuration": 60
     }
   }
