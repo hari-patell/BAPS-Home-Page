@@ -32,10 +32,11 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
       <Header hinduDate={data.satsang.hinduDate} />
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-10 pt-6 sm:px-6 lg:px-8">
-        {/* Row 1: the latest Vicharan, full width. The icon rail sits beside
-            it on desktop. */}
-        <div className="flex gap-4 lg:items-stretch">
-          <div className="h-[360px] flex-1 sm:h-[400px] lg:h-[440px]">
+        {/* Row 1: the latest Vicharan and the Murti / Swamishri darshan sit
+            side by side on desktop, with the icon rail beside them. They stack
+            on smaller screens. */}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+          <div className="h-[360px] sm:h-[420px] lg:h-[520px] lg:flex-[2]">
             <VicharanCarousel
               date={data.vicharan.date}
               location={data.vicharan.location}
@@ -44,18 +45,16 @@ export function DashboardClient({ initialData }: { initialData: DashboardData })
               scheduleHref={data.vicharan.scheduleHref}
             />
           </div>
+          <div className="h-[360px] sm:h-[420px] lg:h-[520px] lg:flex-1">
+            <DarshanPanel
+              murti={data.satsang.darshan.murti}
+              swamishri={data.satsang.darshan.swamishri}
+            />
+          </div>
           <IconRail onRefresh={refresh} refreshing={refreshing} />
         </div>
 
-        {/* Row 2: Murti / Swamishri darshan. */}
-        <div className="mt-4 h-[420px] lg:h-[440px]">
-          <DarshanPanel
-            murti={data.satsang.darshan.murti}
-            swamishri={data.satsang.darshan.swamishri}
-          />
-        </div>
-
-        {/* Row 3: the reading + audio cards. */}
+        {/* Row 2: the reading + audio cards. */}
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <PrernaParimalCard block={data.satsang.prernaParimal} />
           <VachanamrutGemsCard block={data.satsang.vachanamrutGems} />

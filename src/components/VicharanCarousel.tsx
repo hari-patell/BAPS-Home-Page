@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
 import type { VicharanPhoto } from "@/lib/types";
 import { ProxiedImage } from "./ProxiedImage";
+import { Lightbox } from "./Lightbox";
 
 interface Props {
   date?: string;
@@ -24,7 +25,7 @@ export function VicharanCarousel({
 }: Props) {
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(true);
-  const trackRef = useRef<HTMLDivElement>(null);
+  const [zoomed, setZoomed] = useState(false);
 
   const count = photos.length;
   const current = photos[index];
@@ -35,11 +36,6 @@ export function VicharanCarousel({
     const id = setInterval(() => setIndex((i) => (i + 1) % count), AUTOPLAY_MS);
     return () => clearInterval(id);
   }, [playing, count]);
-
-  useEffect(() => {
-    const chip = trackRef.current?.children[index] as HTMLElement | undefined;
-    chip?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-  }, [index]);
 
   if (count === 0) {
     return (
@@ -89,14 +85,21 @@ export function VicharanCarousel({
       </div>
 
       <div className="relative min-h-0 flex-1">
-        <ProxiedImage
-          key={current.image}
-          src={current.image}
-          alt={current.caption || dayLabel || "Vicharan"}
-          className="absolute inset-0 animate-fade-in"
-          fit="contain"
-          priority
-        />
+        <button
+          type="button"
+          onClick={() => setZoomed(true)}
+          aria-label="Enlarge photo"
+          className="absolute inset-0 cursor-zoom-in"
+        >
+          <ProxiedImage
+            key={current.image}
+            src={current.image}
+            alt={current.caption || dayLabel || "Vicharan"}
+            className="absolute inset-0 animate-fade-in"
+            fit="contain"
+            priority
+          />
+        </button>
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/5 to-transparent" />
 
         <div className="absolute right-4 top-4 flex items-center gap-2">
@@ -146,28 +149,14 @@ export function VicharanCarousel({
         </div>
       </div>
 
-      {/* Thumbnail strip — one square per photo of the day. */}
-      <div
-        ref={trackRef}
-        className="no-scrollbar flex shrink-0 items-center gap-2 overflow-x-auto border-t border-asmita/10 bg-black/20 p-3"
-      >
-        {photos.map((photo, i) => (
-          <button
-            key={`${photo.image}-${i}`}
-            type="button"
-            onClick={() => goto(i)}
-            title={photo.caption}
-            aria-label={photo.caption || `Photo ${i + 1}`}
-            className={`shrink-0 overflow-hidden rounded-lg border transition ${
-              i === index
-                ? "border-shurvirta/70 ring-1 ring-shurvirta/40"
-                : "border-asmita/10 opacity-70 hover:opacity-100"
-            }`}
-          >
-            <ProxiedImage src={photo.image} alt="" className="h-11 w-11" />
-          </button>
-        ))}
-      </div>
+      {zoomed && (
+        <Lightbox
+          src={current.image}
+          alt={current.caption || dayLabel || "Vicharan"}
+          caption={current.caption || dayLabel}
+          onClose={() => setZoomed(false)}
+        />
+      )}
     </div>
   );
 }
