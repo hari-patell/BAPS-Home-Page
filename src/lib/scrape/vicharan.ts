@@ -112,12 +112,11 @@ const THUMBNAIL_PATH_RE = /\/Thumbnails\//i;
 async function fetchBetterPhoto(
   href: string,
   expectedDate: string,
-  fresh: boolean,
 ): Promise<string> {
   try {
     const html = await fetchHtml(href, {
       timeoutMs: DETAIL_FETCH_TIMEOUT_MS,
-      revalidate: fresh ? false : 3600,
+      maxAttempts: 1,
     });
     const $ = cheerio.load(html);
     const candidates = toContentImages(collectImages($, href));
@@ -150,7 +149,7 @@ async function fetchBetterPhoto(
  */
 function cachedBetterPhoto(href: string, expectedDate: string): Promise<string> {
   return unstable_cache(
-    () => fetchBetterPhoto(href, expectedDate, false),
+    () => fetchBetterPhoto(href, expectedDate),
     ["vicharan-detail-photo", href],
     { revalidate: DETAIL_PHOTO_TTL_S, tags: ["dashboard"] },
   )();
@@ -240,10 +239,10 @@ export async function getVicharan(
         ) {
           return Promise.resolve(undefined);
         }
-        const lookup = fresh
-          ? fetchBetterPhoto(entry.href, entry.date, true)
-          : cachedBetterPhoto(entry.href, entry.date);
-        return lookup.catch(() => undefined);
+        // Not conditioned on `fresh`: a day page is immutable once
+        // published, so the manual refresh has nothing to gain from
+        // re-fetching six of them and a whole budget to lose.
+        return cachedBetterPhoto(entry.href, entry.date).catch(() => undefined);
       },
     );
 

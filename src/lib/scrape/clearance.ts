@@ -193,14 +193,16 @@ async function navigateForHtml(
 export async function fetchHtmlViaBrowser(
   url: string,
   timeoutMs = 20000,
+  maxAttempts = CHALLENGE_ATTEMPTS,
 ): Promise<string> {
+  const attempts = Math.min(Math.max(maxAttempts, 1), CHALLENGE_ATTEMPTS);
   // Three genuine solve attempts could otherwise run past a minute on their
   // own, and the caller only has 60s for the whole dashboard. Retries stop
   // at this deadline even if attempts remain.
   const deadline = Date.now() + timeoutMs * 2;
 
-  for (let attempt = 0; attempt < CHALLENGE_ATTEMPTS; attempt++) {
-    const last = attempt === CHALLENGE_ATTEMPTS - 1 || Date.now() > deadline;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const last = attempt === attempts - 1 || Date.now() > deadline;
     try {
       const browser = await getBrowser();
       // Clearance covers a host, but Cloudflare still challenges individual

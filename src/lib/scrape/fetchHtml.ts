@@ -8,6 +8,13 @@ export interface FetchHtmlOptions {
    * can't wrap. Caching happens at the page level instead.
    */
   revalidate?: number | false;
+  /**
+   * Caps how many times a Cloudflare challenge is re-solved for this URL.
+   * Worth lowering for fetches that have a graceful fallback: a challenged
+   * page can otherwise burn the better part of a minute on re-solves, and
+   * spending that on a bonus photo starves the pages that actually matter.
+   */
+  maxAttempts?: number;
 }
 
 /**
@@ -19,9 +26,9 @@ export interface FetchHtmlOptions {
  */
 export async function fetchHtml(
   url: string,
-  { timeoutMs = 20000 }: FetchHtmlOptions = {},
+  { timeoutMs = 20000, maxAttempts }: FetchHtmlOptions = {},
 ): Promise<string> {
-  return fetchHtmlViaBrowser(url, timeoutMs);
+  return fetchHtmlViaBrowser(url, timeoutMs, maxAttempts);
 }
 
 export function absoluteUrl(
