@@ -37,7 +37,7 @@ export interface FetchHtmlOptions {
 
 export async function fetchHtml(
   url: string,
-  { timeoutMs = 20000, revalidate = 1800 }: FetchHtmlOptions = {},
+  { timeoutMs = 12000, revalidate = 1800 }: FetchHtmlOptions = {},
 ): Promise<string> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const { cookieHeader, userAgent } = await getClearance(url, attempt > 0);

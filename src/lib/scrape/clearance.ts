@@ -24,7 +24,9 @@ export const CLEARANCE_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 const CHALLENGE_TITLE_RE = /just a moment/i;
-const CHALLENGE_TIMEOUT_MS = 30000;
+// Kept well under the route's 60s ceiling: Chromium cold start plus this
+// solve, both page fetches and the Vicharan detail phase all have to fit.
+const CHALLENGE_TIMEOUT_MS = 20000;
 // Cloudflare clearance typically lasts far longer, but re-earning it is
 // cheap relative to serving stale failures, and a warm instance can live a
 // while.

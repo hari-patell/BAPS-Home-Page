@@ -12,14 +12,17 @@ import {
 
 const LOCATION_SPLIT_RE = /[—–-]\s*/;
 
-// The listing page has ~30+ entries per month (58+ across the "upcoming"
-// window shown on-site); following every single one into its own detail
-// page for a better photo would mean 30+ extra headless-browser page loads
-// per scrape, which is both slow (risks the function's time budget) and
-// wasteful for a carousel nobody scrolls that deep into. Cap to the most
-// recent handful instead.
-const MAX_DETAIL_FETCHES = 12;
-const DETAIL_FETCH_CONCURRENCY = 2;
+// The listing page has ~30+ entries per month, and each one's better photo
+// lives on its own detail page. These are plain HTTP fetches now (not
+// browser page loads), so they can run wide without memory cost — but they
+// still have to fit inside the function's 60s ceiling alongside Chromium
+// cold-start and the Cloudflare solve. One round of 8 parallel fetches with
+// a short timeout, plus an overall deadline, keeps the worst case bounded:
+// the previous 12-at-concurrency-2-with-12s-timeouts could alone consume
+// 72s and was what pushed the route into Vercel's timeout.
+const MAX_DETAIL_FETCHES = 8;
+const DETAIL_FETCH_CONCURRENCY = 8;
+const DETAIL_PHASE_BUDGET_MS = 15000;
 
 function splitDateLocation(
   caption: string | undefined,
@@ -91,7 +94,7 @@ async function mapWithConcurrency<T, R>(
 // Short timeout — these are bonus fetches with a graceful thumbnail
 // fallback, so failing fast on a slow detail page beats risking the whole
 // route's maxDuration budget.
-const DETAIL_FETCH_TIMEOUT_MS = 12000;
+const DETAIL_FETCH_TIMEOUT_MS = 7000;
 
 async function fetchBetterPhoto(
   href: string,
@@ -148,9 +151,14 @@ export async function getVicharan(
     // itself highlights the latest Vicharan first.
     const recent = parsed.slice(-MAX_DETAIL_FETCHES).reverse();
 
-    const betterPhotos = await mapWithConcurrency(recent, DETAIL_FETCH_CONCURRENCY, (entry) =>
-      entry.href ? fetchBetterPhoto(entry.href, fresh) : Promise.resolve(undefined),
-    );
+    // Hard deadline for the whole detail-fetch phase: past it, remaining
+    // entries just keep their listing thumbnail rather than risking the
+    // function timing out and losing the entire dashboard.
+    const detailDeadline = Date.now() + DETAIL_PHASE_BUDGET_MS;
+    const betterPhotos = await mapWithConcurrency(recent, DETAIL_FETCH_CONCURRENCY, (entry) => {
+      if (!entry.href || Date.now() > detailDeadline) return Promise.resolve(undefined);
+      return fetchBetterPhoto(entry.href, fresh);
+    });
 
     const entries: VicharanEntry[] = recent.map((entry, i) => ({
       date: entry.date,
