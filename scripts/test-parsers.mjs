@@ -113,5 +113,26 @@ const prImgs = collectImages(pr, "https://www.baps.org/vicharan.aspx");
 check("real protocol-relative host preserved",
   prImgs[0]?.src === "https://cdn.example.com/Media/x.jpg", prImgs[0]?.src);
 
+console.log("\n=== prerna section slice (real 19-Aug page text) ===");
+const realBody = "Daily Satsang 19 Aug 2026, Shravan Sud Satam Samvat 2082 Murti Darshan Shri Akshar Purushottam Maharaj, Cincinnati, OH, USA Swamishri's Darshan Param Pujya Pramukh Swami MaharajMay 1999, Silvassa, India પ્રેરણા પરિમલ બ્રહ્મસ્વરૂપ પ્રમુખસ્વામી મહારાજની પ્રેરક પ્રસંગ-સ્મૃતિઓ તા. 1-9-2010, ભાવનગર સ્વામીશ્રી રાત્રિભોજન અંગીકાર કરી રહ્યા હતા. Vachanamrut Gems Gadhada II-23.4: The Mind of a True Sadhu";
+const PRERNA_SECTION_RE = /પ્રેરણા\s*પરિમલ\s*([\s\S]{40,4000}?)(?=Vachanamrut\s+Gems|Audio\s+Satsang|$)/;
+const slice = realBody.match(PRERNA_SECTION_RE)?.[1]?.trim();
+check("slice excludes darshan captions", Boolean(slice) && !slice.includes("Cincinnati"), (slice||"").slice(0,40));
+check("slice excludes Vachanamrut section", Boolean(slice) && !slice.includes("True Sadhu"));
+check("slice keeps the passage", Boolean(slice) && slice.includes("રાત્રિભોજન"));
+
+console.log("\n=== vicharan location stops at markup junk ===");
+const vtext = "17-Aug-2026 - Ahmedabad, India .socialmedia { position: absolute; } 16-Aug-2026 - Ahmedabad, India";
+const DATE_TOKEN_SRC = /\b\d{1,2}[-\s](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[-\s]\d{4}\b/i.source;
+const vpat = new RegExp(`(${DATE_TOKEN_SRC})\\s*[-–—]\\s*([A-Za-z][A-Za-z .'-]{0,40},\\s*[A-Za-z][A-Za-z .'-]{0,40}?)(?=\\s*(?:[.#]|$|\\d{1,2}[-\\s][A-Z]))`, "gi");
+const locs = [...vtext.matchAll(vpat)].map((m) => m[2].trim());
+check("location has no CSS junk", locs[0] === "Ahmedabad, India", JSON.stringify(locs));
+
+console.log("\n=== audio matcher finds jPlayer mp3s ===");
+const audioHtml = `<html><body><script>$("#p").jPlayer({ready:function(){$(this).jPlayer("setMedia",{mp3:"https://download.baps.org/a/vachanamrut_219.mp3"});}});</script></body></html>`;
+const $a = cheerio.load(audioHtml);
+const tracks = collectAudioSources($a, "https://www.baps.org/Daily-Satsang.aspx");
+check("1 track found", tracks.length === 1, JSON.stringify(tracks.map(t=>t.src)));
+
 console.log(`\n${failed === 0 ? "ALL PASS" : failed + " FAILED"}`);
 process.exit(failed === 0 ? 0 : 1);

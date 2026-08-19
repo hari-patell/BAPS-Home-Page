@@ -198,11 +198,13 @@ export function collectAudioSources(
     );
   });
 
-  // jPlayer: setMedia({mp3: "https://download.baps.org/.../file.mp3"})
+  // jPlayer: setMedia({mp3: "https://download.baps.org/.../file.mp3"}).
+  // Matched loosely because the exact call shape varies per player block;
+  // any .mp3 URL in an inline script is a track.
   $("script").each((_, el) => {
     const js = $(el).text();
-    if (!js.includes("mp3")) return;
-    for (const m of js.matchAll(/mp3\s*:\s*["']([^"']+\.mp3[^"']*)["']/gi)) {
+    if (!js.toLowerCase().includes(".mp3")) return;
+    for (const m of js.matchAll(/["']([^"']*\.mp3[^"']*)["']/gi)) {
       add(m[1]);
     }
   });

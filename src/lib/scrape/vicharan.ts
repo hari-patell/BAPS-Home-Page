@@ -43,8 +43,11 @@ function splitDateLocation(
 function collectCaptionsByDate($: cheerio.CheerioAPI): Map<string, string> {
   const byDate = new Map<string, string>();
   const text = cleanText($("body").text());
+  // The trailing group stops at the first character that can't be part of a
+  // place name — without that bound it ran on into adjacent markup text
+  // ("Ahmedabad, India .socialmedia").
   const pattern = new RegExp(
-    `(${DATE_TOKEN_RE.source})\\s*[-–—]\\s*([A-Za-z][^,]{0,40},\\s*[A-Za-z][A-Za-z .]{0,40})`,
+    `(${DATE_TOKEN_RE.source})\\s*[-–—]\\s*([A-Za-z][A-Za-z .'-]{0,40},\\s*[A-Za-z][A-Za-z .'-]{0,40}?)(?=\\s*(?:[.#]|$|\\d{1,2}[-\\s][A-Z]))`,
     "gi",
   );
   for (const m of text.matchAll(pattern)) {

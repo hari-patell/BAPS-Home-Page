@@ -38,19 +38,31 @@ function stripNonContent($: cheerio.CheerioAPI): void {
   $("script, style, noscript").remove();
 }
 
-function extractPrernaParimal($: cheerio.CheerioAPI): TextBlock | undefined {
-  const block = findLargestGujaratiBlock($);
-  if (!block) return undefined;
+// The Gujarati passage runs from the "પ્રેરણા પરિમલ" heading up to the next
+// English section ("Vachanamrut Gems"). Slicing the page text between those
+// two markers is much tighter than picking the largest Gujarati-containing
+// element, which matched a whole page-sized container and swallowed the
+// darshan captions and the entire Vachanamrut section with it.
+const PRERNA_SECTION_RE =
+  /પ્રેરણા\s*પરિમલ\s*([\s\S]{40,4000}?)(?=Vachanamrut\s+Gems|Audio\s+Satsang|$)/;
 
-  // Try to find a short bold "title" line right before the paragraph.
-  const prev = block.el.prevAll("strong,b,h1,h2,h3,h4,h5").first();
-  const title = cleanText(prev.text()) || undefined;
+function extractPrernaParimal(
+  $: cheerio.CheerioAPI,
+  bodyText: string,
+): TextBlock | undefined {
+  const sliced = cleanText(bodyText.match(PRERNA_SECTION_RE)?.[1]);
+  const body = sliced || findLargestGujaratiBlock($)?.text;
+  if (!body) return undefined;
 
-  const heading = findHeading($, /prerna|પ્રેરણા/i);
+  // The first sentence is the standing sub-title ("બ્રહ્મસ્વરૂપ પ્રમુખસ્વામી
+  // મહારાજની પ્રેરક પ્રસંગ-સ્મૃતિઓ"); keep it separate from the passage.
+  const [, title, rest] =
+    body.match(/^(બ્રહ્મસ્વરૂપ[^\u0964]{0,80}?સ્મૃતિઓ)\s*([\s\S]*)$/) ?? [];
+
   return {
-    heading: heading ? cleanText(heading.text()) : "Prerna Parimal",
-    title,
-    body: block.text,
+    heading: "પ્રેરણા પરિમલ",
+    title: title ? cleanText(title) : undefined,
+    body: rest ? cleanText(rest) : body,
   };
 }
 
@@ -143,7 +155,7 @@ export async function getDailySatsang(
 
     return {
       hinduDate: bodyText.match(SAMVAT_RE)?.[1],
-      prernaParimal: extractPrernaParimal($),
+      prernaParimal: extractPrernaParimal($, bodyText),
       vachanamrutGems: extractVachanamrutGems($),
       audio,
       darshan: bucketDarshanImages(images, bodyText),
