@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-nishtha: #6b2b15;
+  --color-shurvirta: #fbb042;
+  --color-asmita: #fff1da;
+  --color-niyam: #275071;
+  --color-dharma: #e88838;
+
+  --color-ink: #1c0f08;
+  --color-ink-2: #2a150b;
+
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-gujarati: var(--font-gujarati);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  min-height: 100dvh;
+  color: var(--color-asmita);
+  font-family: var(--font-body), system-ui, sans-serif;
+  background-color: var(--color-ink);
+  background-image:
+    radial-gradient(120% 90% at 12% -10%, color-mix(in srgb, var(--color-nishtha) 55%, transparent) 0%, transparent 60%),
+    radial-gradient(90% 70% at 105% 10%, color-mix(in srgb, var(--color-dharma) 22%, transparent) 0%, transparent 55%),
+    linear-gradient(180deg, var(--color-ink-2) 0%, var(--color-ink) 45%, #120a05 100%);
+  background-attachment: fixed;
+}
+
+[lang="gu"] {
+  font-family: var(--font-gujarati), var(--font-body), sans-serif;
+}
+
+::selection {
+  background: var(--color-shurvirta);
+  color: var(--color-ink);
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-shurvirta) 45%, transparent) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-shurvirta) 45%, transparent);
+  border-radius: 999px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out;
+}
