@@ -15,6 +15,12 @@ export interface FetchHtmlOptions {
    * spending that on a bonus photo starves the pages that actually matter.
    */
   maxAttempts?: number;
+  /**
+   * Wall-clock instant this fetch must be finished by, overriding its own
+   * retry budget when tighter. The routes are capped at 60s, and returning
+   * a partial dashboard at 45 beats returning nothing at 60.
+   */
+  deadline?: number;
 }
 
 /**
@@ -26,9 +32,9 @@ export interface FetchHtmlOptions {
  */
 export async function fetchHtml(
   url: string,
-  { timeoutMs = 20000, maxAttempts }: FetchHtmlOptions = {},
+  { timeoutMs = 20000, maxAttempts, deadline }: FetchHtmlOptions = {},
 ): Promise<string> {
-  return fetchHtmlViaBrowser(url, timeoutMs, maxAttempts);
+  return fetchHtmlViaBrowser(url, timeoutMs, maxAttempts, deadline);
 }
 
 export function absoluteUrl(

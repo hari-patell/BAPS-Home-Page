@@ -194,12 +194,17 @@ export async function fetchHtmlViaBrowser(
   url: string,
   timeoutMs = 20000,
   maxAttempts = CHALLENGE_ATTEMPTS,
+  hardDeadline?: number,
 ): Promise<string> {
   const attempts = Math.min(Math.max(maxAttempts, 1), CHALLENGE_ATTEMPTS);
   // Three genuine solve attempts could otherwise run past a minute on their
   // own, and the caller only has 60s for the whole dashboard. Retries stop
-  // at this deadline even if attempts remain.
-  const deadline = Date.now() + timeoutMs * 2;
+  // at this deadline even if attempts remain, and the caller's own
+  // wall-clock deadline wins over ours when it's tighter.
+  const deadline = Math.min(
+    Date.now() + timeoutMs * 2,
+    hardDeadline ?? Number.POSITIVE_INFINITY,
+  );
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     const last = attempt === attempts - 1 || Date.now() > deadline;
@@ -210,7 +215,15 @@ export async function fetchHtmlViaBrowser(
       // then be challenged on vicharan.aspx. Every attempt after the first
       // therefore forces a genuine re-solve rather than trusting the cookie.
       await ensureCleared(browser, url, attempt > 0);
-      const html = await navigateForHtml(browser, url, timeoutMs);
+      // Never let a single navigation run past the deadline either — a
+      // challenge solve can eat most of the window before we get here.
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error(`${url} ran out of time`);
+      const html = await navigateForHtml(
+        browser,
+        url,
+        Math.max(Math.min(timeoutMs, remaining), 2000),
+      );
 
       if (CHALLENGE_TITLE_RE.test(html) && html.length < 60000) {
         invalidateClearance(url);

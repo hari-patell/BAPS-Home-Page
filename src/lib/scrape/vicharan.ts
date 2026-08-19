@@ -242,7 +242,10 @@ export async function getVicharan(
   const fetchedAt = new Date().toISOString();
 
   try {
-    const html = await fetchHtml(sourceUrl, { revalidate: fresh ? false : 1800 });
+    const html = await fetchHtml(sourceUrl, {
+      revalidate: fresh ? false : 1800,
+      deadline,
+    });
     const $ = cheerio.load(html);
 
     const recent = parseListing($, sourceUrl);

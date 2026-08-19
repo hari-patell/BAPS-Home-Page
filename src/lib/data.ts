@@ -23,8 +23,14 @@ async function scrapeDashboard(opts: DashboardOptions): Promise<DashboardData> {
   // showed up as one source succeeding while the other came back "still
   // challenged". Each scrape is only a few seconds, so serialising costs
   // little and removes the race.
+  // Split rather than shared: Daily Satsang gets the first half of the
+  // budget so it can't consume the whole thing and leave Vicharan with
+  // nothing, which would lose half the dashboard rather than trimming it.
   const deadline = Date.now() + SCRAPE_BUDGET_MS;
-  const satsang = await getDailySatsang(opts);
+  const satsang = await getDailySatsang({
+    ...opts,
+    deadline: Date.now() + SCRAPE_BUDGET_MS / 2,
+  });
   const vicharan = await getVicharan({ ...opts, deadline });
 
   return {

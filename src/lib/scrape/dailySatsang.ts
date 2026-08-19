@@ -133,13 +133,16 @@ function bucketDarshanImages(
 const AUDIO_TITLES = ["Vachanamrut", "Swamini Vato", "Katha"];
 
 export async function getDailySatsang(
-  { fresh = false }: { fresh?: boolean } = {},
+  { fresh = false, deadline }: { fresh?: boolean; deadline?: number } = {},
 ): Promise<DailySatsangData> {
   const sourceUrl = SOURCES.dailySatsang;
   const fetchedAt = new Date().toISOString();
 
   try {
-    const html = await fetchHtml(sourceUrl, { revalidate: fresh ? false : 1800 });
+    const html = await fetchHtml(sourceUrl, {
+      revalidate: fresh ? false : 1800,
+      deadline,
+    });
     const $ = cheerio.load(html);
     const images = collectImages($, sourceUrl);
 
