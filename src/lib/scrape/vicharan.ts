@@ -236,7 +236,7 @@ function parseListing($: cheerio.CheerioAPI, sourceUrl: string): ListingEntry[] 
 }
 
 export async function getVicharan(
-  { fresh = false }: { fresh?: boolean } = {},
+  { fresh = false, deadline }: { fresh?: boolean; deadline?: number } = {},
 ): Promise<VicharanData> {
   const sourceUrl = SOURCES.vicharan;
   const fetchedAt = new Date().toISOString();
@@ -250,7 +250,12 @@ export async function getVicharan(
     // Hard deadline for the whole detail-fetch phase: past it, remaining
     // entries just keep their listing thumbnail rather than risking the
     // function timing out and losing the entire dashboard.
-    const detailDeadline = Date.now() + DETAIL_PHASE_BUDGET_MS;
+    // Whichever comes first: this phase's own budget, or the caller's
+    // wall-clock deadline for the whole scrape.
+    const detailDeadline = Math.min(
+      Date.now() + DETAIL_PHASE_BUDGET_MS,
+      deadline ?? Number.POSITIVE_INFINITY,
+    );
     const betterPhotos = await mapWithConcurrency(
       recent,
       DETAIL_FETCH_CONCURRENCY,

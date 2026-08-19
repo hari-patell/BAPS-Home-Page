@@ -5,6 +5,13 @@ import type { DashboardData } from "./types";
 
 const CACHE_SECONDS = 1800; // 30 min
 
+// The routes that call this are capped at 60s. A cold start spends the
+// first chunk of that launching Chromium and earning Cloudflare clearance,
+// so the scrape gets a wall-clock budget of its own and the parts that have
+// a graceful fallback — the Vicharan day photos — yield to it. Without this
+// a cold /api/dashboard could run past the ceiling and return nothing.
+const SCRAPE_BUDGET_MS = 45000;
+
 export interface DashboardOptions {
   /** Bypass the upstream cache — used by the UI's manual refresh. */
   fresh?: boolean;
@@ -16,8 +23,9 @@ async function scrapeDashboard(opts: DashboardOptions): Promise<DashboardData> {
   // showed up as one source succeeding while the other came back "still
   // challenged". Each scrape is only a few seconds, so serialising costs
   // little and removes the race.
+  const deadline = Date.now() + SCRAPE_BUDGET_MS;
   const satsang = await getDailySatsang(opts);
-  const vicharan = await getVicharan(opts);
+  const vicharan = await getVicharan({ ...opts, deadline });
 
   return {
     satsang,
