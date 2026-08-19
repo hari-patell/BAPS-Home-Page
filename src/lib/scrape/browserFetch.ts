@@ -68,14 +68,13 @@ async function getBrowser(): Promise<Browser> {
   return browserPromise;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
- * Cloudflare's challenge can chain multiple client-side reloads while it
- * resolves, and any Puppeteer call that touches the page mid-reload (not
- * just the initial goto()) can throw a "detached Frame" error — title(),
- * content(), evaluate(), all of it. Rather than special-case each call
- * site, retry anything that hits this specific error a few times with a
- * short pause, since the frame reliably settles down within a second or
- * two once the reload chain finishes.
+ * Retries a page read that raced a navigation. Note this only helps when a
+ * *fresh* frame is available on the next attempt — if the page's frame is
+ * permanently torn down, retrying the same call never succeeds, which is
+ * exactly why the challenge wait below avoids touching the page at all.
  */
 async function retryOnDetachedFrame<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
   let lastErr: unknown;
@@ -85,10 +84,44 @@ async function retryOnDetachedFrame<T>(fn: () => Promise<T>, attempts = 5): Prom
     } catch (err) {
       lastErr = err;
       if (!/detached/i.test(String(err))) throw err;
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      await sleep(800);
     }
   }
   throw lastErr;
+}
+
+/**
+ * Waits for Cloudflare to hand out a clearance cookie.
+ *
+ * The reason this polls cookies rather than the page: while the challenge
+ * runs it tears down and replaces the document repeatedly, and *any* call
+ * against the page (title(), content(), evaluate()) can throw "Attempted to
+ * use detached Frame". Retrying those doesn't help once a frame is gone for
+ * good — which is what kept happening. browser.cookies() reads from the
+ * browser, not from any frame, so it's immune to that churn entirely.
+ *
+ * Returns true if clearance was granted. False means the challenge never
+ * resolved (i.e. we're still being classified as a bot), which is a real
+ * signal worth surfacing rather than a timing flake.
+ */
+async function hasClearance(browser: Browser, hostname: string): Promise<boolean> {
+  const cookies = await browser.cookies().catch(() => []);
+  return cookies.some(
+    (c) => c.name === "cf_clearance" && hostname.endsWith(c.domain.replace(/^\./, "")),
+  );
+}
+
+async function waitForClearance(
+  browser: Browser,
+  hostname: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await hasClearance(browser, hostname)) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(1000);
+  }
 }
 
 /** Scrolls to the bottom in steps so lazy-loaded/below-the-fold images actually load. */
@@ -277,44 +310,71 @@ interface RenderedPage {
   page: Page;
   response: Awaited<ReturnType<Page["goto"]>>;
   challengeDetected: boolean;
+  cleared: boolean;
 }
 
-async function renderPage(url: string, timeoutMs: number): Promise<RenderedPage> {
-  const browser = await getBrowser();
+async function newStealthPage(browser: Browser): Promise<Page> {
   const page = await browser.newPage();
   await applyStealth(page, UA);
   await page.setViewport({ width: 1440, height: 900 });
+  return page;
+}
 
+/**
+ * Loads a page past Cloudflare in two phases, because trying to do it in
+ * one is what caused every "detached Frame" failure:
+ *
+ *  1. Navigate on a throwaway page purely to let the challenge run. All
+ *     errors here are swallowed — the document gets torn down and replaced
+ *     repeatedly while Cloudflare works, so navigation errors are expected
+ *     and meaningless. We never read from this page; we watch the browser's
+ *     cookie jar instead (see waitForClearance).
+ *  2. Once cleared, throw that page away and load the URL on a fresh one.
+ *     Clearance is a browser-wide cookie, so this second load sails through
+ *     with no interstitial, giving a stable frame to actually read from.
+ */
+async function renderPage(url: string, timeoutMs: number): Promise<RenderedPage> {
+  const browser = await getBrowser();
+  const hostname = new URL(url).hostname;
+
+  let challengeDetected = false;
+  const alreadyCleared = await hasClearance(browser, hostname);
+
+  if (!alreadyCleared) {
+    const warmup = await newStealthPage(browser);
+    try {
+      await warmup
+        .goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs })
+        .catch(() => {});
+      challengeDetected = await warmup
+        .title()
+        .then((t) => CHALLENGE_TITLE_RE.test(t))
+        .catch(() => true);
+      if (challengeDetected) {
+        await waitForClearance(browser, hostname, timeoutMs);
+      }
+    } finally {
+      await warmup.close().catch(() => {});
+    }
+  }
+
+  const page = await newStealthPage(browser);
   let response: Awaited<ReturnType<Page["goto"]>> = null;
   try {
     response = await page.goto(url, { waitUntil: "networkidle2", timeout: timeoutMs });
   } catch (err) {
-    // Cloudflare's challenge can trigger its own client-side reload while
-    // goto() is still waiting on *that* (interstitial) page's load
-    // lifecycle, tearing down the frame context goto() was watching —
-    // Puppeteer surfaces that as "Navigating frame was detached" instead of
-    // just resolving with the new page. Expected here, not fatal: give the
-    // page a moment to land wherever it actually navigated to.
-    if (!/detached/i.test(String(err))) throw err;
+    if (!/detached|Navigation/i.test(String(err))) throw err;
     await page.waitForNetworkIdle({ timeout: timeoutMs }).catch(() => {});
-  }
-
-  // Cloudflare's automatic challenge resolves via a JS-triggered reload once
-  // its proof-of-work check passes; wait for that follow-up navigation if
-  // we're still looking at the interstitial.
-  const challengeDetected = CHALLENGE_TITLE_RE.test(
-    await retryOnDetachedFrame(() => page.title()),
-  );
-  if (challengeDetected) {
-    const nav = await page
-      .waitForNavigation({ waitUntil: "networkidle2", timeout: timeoutMs })
-      .catch(() => null);
-    if (nav) response = nav;
   }
 
   await retryOnDetachedFrame(() => autoScroll(page));
 
-  return { page, response, challengeDetected };
+  return {
+    page,
+    response,
+    challengeDetected,
+    cleared: await hasClearance(browser, hostname),
+  };
 }
 
 export interface RenderedContent {
@@ -366,6 +426,8 @@ interface ProbeResult {
   finalUrl: string;
   title: string;
   challengeDetected: boolean;
+  /** Whether Cloudflare granted a cf_clearance cookie. False = still classified as a bot. */
+  cleared: boolean;
   headers: Record<string, string>;
   htmlLength: number;
   htmlSnippet: string;
@@ -378,7 +440,7 @@ export async function probeRenderedPage(
   url: string,
   timeoutMs = 25000,
 ): Promise<ProbeResult> {
-  const { page, response, challengeDetected } = await renderPage(url, timeoutMs);
+  const { page, response, challengeDetected, cleared } = await renderPage(url, timeoutMs);
   try {
     const html = await retryOnDetachedFrame(() => page.content());
     const images = await retryOnDetachedFrame(() =>
@@ -389,6 +451,7 @@ export async function probeRenderedPage(
       finalUrl: page.url(),
       title: await retryOnDetachedFrame(() => page.title()),
       challengeDetected,
+      cleared,
       headers: response?.headers() ?? {},
       htmlLength: html.length,
       htmlSnippet: html.slice(0, 800),
