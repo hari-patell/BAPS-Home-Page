@@ -68,6 +68,8 @@
   let bookmarks = [];
   let addingBookmark = false;
   let folderOpen = false;
+  let dragIndex = null;
+  let dragContext = null;
 
   function loadBookmarks() {
     try {
@@ -137,6 +139,7 @@
     img.className = "bm-favicon";
     img.src = url;
     img.alt = "";
+    img.draggable = false;
     img.referrerPolicy = "no-referrer";
     // Fall back to a text-only chip if the favicon can't be fetched.
     img.addEventListener("error", function () {
@@ -163,6 +166,57 @@
     saveBookmarks();
     renderQuickLinks();
   }
+  function moveBookmark(from, to) {
+    if (from === to) return;
+    const item = bookmarks.splice(from, 1)[0];
+    // Indices after the removed slot shifted down by one.
+    bookmarks.splice(from < to ? to - 1 : to, 0, item);
+    saveBookmarks();
+    renderQuickLinks();
+  }
+
+  // Wire an element for drag-to-reorder. Dragging is confined to its own
+  // context ("bar" or "folder"); moving between the two is done with the
+  // arrow buttons instead.
+  function makeDraggable(el, index, context) {
+    el.draggable = true;
+    el.addEventListener("dragstart", function (e) {
+      dragIndex = index;
+      dragContext = context;
+      el.classList.add("dragging");
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "move";
+        try {
+          e.dataTransfer.setData("text/plain", String(index));
+        } catch (err) {
+          /* some browsers require a set; ignore failures */
+        }
+      }
+    });
+    el.addEventListener("dragend", function () {
+      el.classList.remove("dragging");
+      dragIndex = null;
+      dragContext = null;
+      const marked = document.querySelectorAll(".drop-target");
+      for (let k = 0; k < marked.length; k++) marked[k].classList.remove("drop-target");
+    });
+    el.addEventListener("dragover", function (e) {
+      if (dragIndex === null || dragContext !== context || index === dragIndex) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      el.classList.add("drop-target");
+    });
+    el.addEventListener("dragleave", function () {
+      el.classList.remove("drop-target");
+    });
+    el.addEventListener("drop", function (e) {
+      if (dragIndex === null || dragContext !== context) return;
+      e.preventDefault();
+      e.stopPropagation();
+      el.classList.remove("drop-target");
+      moveBookmark(dragIndex, index);
+    });
+  }
 
   // A bookmark chip for the main bar.
   function makeBookmark(bm, i) {
@@ -184,6 +238,7 @@
         removeBookmark(i);
       }),
     );
+    makeDraggable(a, i, "bar");
     return a;
   }
 
@@ -210,6 +265,7 @@
         removeBookmark(i);
       }),
     );
+    makeDraggable(row, i, "folder");
     return row;
   }
 

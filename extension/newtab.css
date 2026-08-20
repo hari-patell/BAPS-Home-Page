@@ -388,6 +388,26 @@ a {
   cursor: pointer;
 }
 
+/* Drag-to-reorder feedback. */
+.quicklink.custom,
+.folder-item {
+  cursor: grab;
+}
+.quicklink.custom:active,
+.folder-item:active {
+  cursor: grabbing;
+}
+.dragging {
+  opacity: 0.4;
+}
+.quicklink.custom.drop-target {
+  border-color: color-mix(in srgb, var(--shurvirta) 70%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--shurvirta) 50%, transparent);
+}
+.folder-item.drop-target {
+  background: color-mix(in srgb, var(--shurvirta) 18%, transparent);
+}
+
 /* ---------- Main ---------- */
 .main {
   width: 100%;
