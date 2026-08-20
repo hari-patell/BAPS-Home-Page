@@ -99,12 +99,17 @@
       return url;
     }
   }
-  function faviconUrl(href) {
+  // Ordered favicon sources: DuckDuckGo returns the site's real, higher-res
+  // icon; Google is a reliable fallback. If both fail the chip goes text-only.
+  function faviconCandidates(href) {
     try {
       const host = new URL(href).hostname;
-      return "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(host);
+      return [
+        "https://icons.duckduckgo.com/ip3/" + host + ".ico",
+        "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(host),
+      ];
     } catch (e) {
-      return "";
+      return [];
     }
   }
 
@@ -126,24 +131,25 @@
 
   const SVG_FOLDER =
     '<svg class="mini-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a1.5 1.5 0 0 0 1.5-1.5V8.5A1.5 1.5 0 0 0 20 7h-7l-2-2H4a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 4 20Z"/></svg>';
-  const SVG_TO_FOLDER =
-    '<svg class="mini-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v9"/><path d="M8.5 9.5 12 13l3.5-3.5"/><path d="M5 20h14"/></svg>';
   const SVG_TO_BAR =
     '<svg class="mini-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20v-9"/><path d="M8.5 14.5 12 11l3.5 3.5"/><path d="M5 4h14"/></svg>';
 
   function makeFavicon(bm) {
     if (!bm.icon) return null;
-    const url = faviconUrl(bm.href);
-    if (!url) return null;
+    const sources = faviconCandidates(bm.href);
+    if (!sources.length) return null;
     const img = document.createElement("img");
     img.className = "bm-favicon";
-    img.src = url;
     img.alt = "";
     img.draggable = false;
     img.referrerPolicy = "no-referrer";
-    // Fall back to a text-only chip if the favicon can't be fetched.
+    let s = 0;
+    img.src = sources[s];
+    // Try the next source on failure, then fall back to a text-only chip.
     img.addEventListener("error", function () {
-      img.remove();
+      s += 1;
+      if (s < sources.length) img.src = sources[s];
+      else img.remove();
     });
     return img;
   }
@@ -229,15 +235,11 @@
     span.textContent = bm.label;
     a.appendChild(span);
     a.appendChild(
-      actionButton("quicklink-action", "Move to folder", SVG_TO_FOLDER, function () {
-        setBookmarkFolder(i, true);
-      }),
-    );
-    a.appendChild(
       actionButton("quicklink-remove", "Remove bookmark", "×", function () {
         removeBookmark(i);
       }),
     );
+    // Reorder within the bar, or drag onto the folder chip to tuck it away.
     makeDraggable(a, i, "bar");
     return a;
   }
@@ -275,19 +277,44 @@
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "quicklink quicklink-folder" + (folderOpen ? " open" : "");
-    btn.innerHTML = SVG_FOLDER + "<span>" + folderEntries.length + "</span>";
+    btn.innerHTML = SVG_FOLDER + (folderEntries.length ? "<span>" + folderEntries.length + "</span>" : "");
     btn.setAttribute("aria-label", "Saved bookmarks folder");
     btn.addEventListener("click", function () {
       folderOpen = !folderOpen;
       renderQuickLinks();
     });
+    // Drop a bar bookmark onto the folder to tuck it away.
+    btn.addEventListener("dragover", function (e) {
+      if (dragIndex === null || dragContext !== "bar") return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      btn.classList.add("drop-target");
+    });
+    btn.addEventListener("dragleave", function () {
+      btn.classList.remove("drop-target");
+    });
+    btn.addEventListener("drop", function (e) {
+      if (dragIndex === null || dragContext !== "bar") return;
+      e.preventDefault();
+      e.stopPropagation();
+      btn.classList.remove("drop-target");
+      folderOpen = true;
+      setBookmarkFolder(dragIndex, true);
+    });
     wrap.appendChild(btn);
     if (folderOpen) {
       const pop = document.createElement("div");
       pop.className = "folder-popover";
-      folderEntries.forEach(function (entry) {
-        pop.appendChild(makeFolderItem(entry.bm, entry.i));
-      });
+      if (folderEntries.length) {
+        folderEntries.forEach(function (entry) {
+          pop.appendChild(makeFolderItem(entry.bm, entry.i));
+        });
+      } else {
+        const empty = document.createElement("p");
+        empty.className = "folder-empty";
+        empty.textContent = "Drag a bookmark onto the folder to tuck it away.";
+        pop.appendChild(empty);
+      }
       wrap.appendChild(pop);
     }
     return wrap;
@@ -396,7 +423,9 @@
       else nav.appendChild(makeBookmark(bm, i));
     });
 
-    if (folderEntries.length) nav.appendChild(makeFolderControl(folderEntries));
+    // Show the folder chip whenever there are custom bookmarks, so it's always
+    // available as a drop target (even before anything is tucked inside).
+    if (bookmarks.length) nav.appendChild(makeFolderControl(folderEntries));
     else folderOpen = false;
 
     nav.appendChild(makeAddControl());

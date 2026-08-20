@@ -400,12 +400,21 @@ a {
 .dragging {
   opacity: 0.4;
 }
-.quicklink.custom.drop-target {
+.quicklink.custom.drop-target,
+.quicklink-folder.drop-target {
   border-color: color-mix(in srgb, var(--shurvirta) 70%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--shurvirta) 50%, transparent);
+  color: var(--shurvirta);
 }
 .folder-item.drop-target {
   background: color-mix(in srgb, var(--shurvirta) 18%, transparent);
+}
+.folder-empty {
+  padding: 0.55rem 0.6rem;
+  max-width: 12rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--asmita) 50%, transparent);
 }
 
 /* ---------- Main ---------- */
