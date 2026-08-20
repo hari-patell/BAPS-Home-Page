@@ -629,6 +629,23 @@
     }
   }
 
+  // ---------- help button ----------
+  function initHelp() {
+    const btn = $("help-btn");
+    const pop = $("help-popover");
+    if (!btn || !pop) return;
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      pop.hidden = !pop.hidden;
+    });
+    document.addEventListener("click", function (e) {
+      if (!pop.hidden && !e.target.closest("#help")) pop.hidden = true;
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") pop.hidden = true;
+    });
+  }
+
   // ---------- boot ----------
   function boot() {
     tickClock();
@@ -638,6 +655,7 @@
     initVicharanControls();
     initDarshanControls();
     initLightbox();
+    initHelp();
 
     const cached = loadCache();
     if (cached) render(cached);
