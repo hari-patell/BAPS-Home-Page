@@ -9,11 +9,10 @@
   "use strict";
 
   const CACHE_KEY = "baps-dashboard-v1";
-  const BOOKMARKS_KEY = "baps-bookmarks-v1";
   const AUTOPLAY_MS = 6000;
+  const BOOKMARK_BAR_ID = "1"; // Chrome's "Bookmarks Bar" root node.
 
-  // Fixed shortcuts. The user's own bookmarks are appended after these and
-  // persisted separately in localStorage.
+  // Fixed shortcuts, shown before the mirrored browser bookmarks.
   const QUICK_LINKS = [
     { label: "BAPS.org", href: "https://www.baps.org/" },
     { label: "Daily Satsang", href: "https://www.baps.org/Daily-Satsang.aspx" },
@@ -61,37 +60,16 @@
     });
   }
 
-  // ---------- quick links + user bookmarks ----------
-  // A bookmark is { label, href, icon: bool, folder: bool }. `folder` ones are
-  // tucked into a pop-up folder instead of the main bar. `icon` toggles a
-  // site favicon beside the label.
-  let bookmarks = [];
-  let addingBookmark = false;
-  let folderOpen = false;
-  let draggingEl = null;
-  let dragContext = null;
+  // ---------- quick links + browser bookmarks (read-only mirror) ----------
+  // Mirrors the browser's Bookmarks Bar: same bookmarks, folders and favicons.
+  // Adding/organizing happens in the browser; this view only reflects it.
+  let barNodes = [];
+  let openFolderId = null;
 
-  function loadBookmarks() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(BOOKMARKS_KEY));
-      return Array.isArray(raw) ? raw : [];
-    } catch (e) {
-      return [];
-    }
-  }
-  function saveBookmarks() {
-    try {
-      localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks));
-    } catch (e) {
-      /* quota / private mode — non-fatal */
-    }
+  function bookmarksApi() {
+    return typeof chrome !== "undefined" && chrome.bookmarks ? chrome.bookmarks : null;
   }
 
-  function normalizeUrl(url) {
-    const u = (url || "").trim();
-    if (!u) return "";
-    return /^https?:\/\//i.test(u) ? u : "https://" + u;
-  }
   function labelFromUrl(url) {
     try {
       return new URL(url).hostname.replace(/^www\./, "");
@@ -99,60 +77,44 @@
       return url;
     }
   }
-  // Ordered favicon sources: DuckDuckGo returns the site's real, higher-res
-  // icon; Google is a reliable fallback. If both fail the chip goes text-only.
-  function faviconCandidates(href) {
+
+  // The browser's own cached favicon (matches the bookmarks bar exactly) via
+  // the `favicon` permission; falls back to a public service off-extension.
+  function faviconUrl(pageUrl) {
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getURL) {
+      try {
+        const u = new URL(chrome.runtime.getURL("/_favicon/"));
+        u.searchParams.set("pageUrl", pageUrl);
+        u.searchParams.set("size", "32");
+        return u.toString();
+      } catch (e) {
+        /* fall through to a public service */
+      }
+    }
     try {
-      const host = new URL(href).hostname;
-      return [
-        "https://icons.duckduckgo.com/ip3/" + host + ".ico",
-        "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(host),
-      ];
+      return "https://icons.duckduckgo.com/ip3/" + new URL(pageUrl).hostname + ".ico";
     } catch (e) {
-      return [];
+      return "";
     }
   }
 
-  // Small icon-button factory (used for move/remove actions on bookmarks).
-  function actionButton(className, title, svg, onClick) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = className;
-    b.title = title;
-    b.setAttribute("aria-label", title);
-    b.innerHTML = svg;
-    b.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      onClick();
-    });
-    return b;
-  }
-
-  const SVG_FOLDER =
-    '<svg class="mini-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a1.5 1.5 0 0 0 1.5-1.5V8.5A1.5 1.5 0 0 0 20 7h-7l-2-2H4a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 4 20Z"/></svg>';
-  const SVG_TO_BAR =
-    '<svg class="mini-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20v-9"/><path d="M8.5 14.5 12 11l3.5 3.5"/><path d="M5 4h14"/></svg>';
-
-  function makeFavicon(bm) {
-    if (!bm.icon) return null;
-    const sources = faviconCandidates(bm.href);
-    if (!sources.length) return null;
+  function makeFavicon(pageUrl) {
+    const url = faviconUrl(pageUrl);
+    if (!url) return null;
     const img = document.createElement("img");
     img.className = "bm-favicon";
     img.alt = "";
     img.draggable = false;
     img.referrerPolicy = "no-referrer";
-    let s = 0;
-    img.src = sources[s];
-    // Try the next source on failure, then fall back to a text-only chip.
+    img.src = url;
     img.addEventListener("error", function () {
-      s += 1;
-      if (s < sources.length) img.src = sources[s];
-      else img.remove();
+      img.remove();
     });
     return img;
   }
+
+  const SVG_FOLDER =
+    '<svg class="mini-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a1.5 1.5 0 0 0 1.5-1.5V8.5A1.5 1.5 0 0 0 20 7h-7l-2-2H4a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 4 20Z"/></svg>';
 
   function makeDefaultLink(link) {
     const a = document.createElement("a");
@@ -162,298 +124,94 @@
     return a;
   }
 
-  function removeBookmark(i) {
-    bookmarks.splice(i, 1);
-    saveBookmarks();
-    renderQuickLinks();
-  }
-  function setBookmarkFolder(i, inFolder) {
-    bookmarks[i].folder = inFolder;
-    saveBookmarks();
-    renderQuickLinks();
-  }
-  // ----- drag-to-reorder (live: items slide out of the way as you drag) -----
-  // Each rendered chip/row carries a `_bm` back-reference to its bookmark, so
-  // after a drag we can rebuild the array straight from the DOM order.
-
-  // The sibling the dragged element should sit *before*, given the pointer
-  // position (null = past the end).
-  function dragAfterElement(items, axis, e) {
-    const pos = axis === "x" ? e.clientX : e.clientY;
-    let closestEl = null;
-    let closestDist = -Infinity;
-    for (let k = 0; k < items.length; k++) {
-      const box = items[k].getBoundingClientRect();
-      const center = axis === "x" ? box.left + box.width / 2 : box.top + box.height / 2;
-      const offset = pos - center;
-      if (offset < 0 && offset > closestDist) {
-        closestDist = offset;
-        closestEl = items[k];
-      }
-    }
-    return closestEl;
-  }
-
-  function commitOrder(context) {
-    const nav = $("quicklinks");
-    const collect = function (nodes) {
-      const out = [];
-      for (let k = 0; k < nodes.length; k++) if (nodes[k]._bm) out.push(nodes[k]._bm);
-      return out;
-    };
-    if (context === "bar") {
-      const bar = collect(nav.querySelectorAll(".quicklink.custom"));
-      const folder = bookmarks.filter(function (b) { return b.folder; });
-      bookmarks = bar.concat(folder);
-    } else {
-      const pop = nav.querySelector(".folder-popover");
-      const folder = pop ? collect(pop.querySelectorAll(".folder-item")) : [];
-      const bar = bookmarks.filter(function (b) { return !b.folder; });
-      bookmarks = bar.concat(folder);
-    }
-    saveBookmarks();
-    renderQuickLinks();
-  }
-
-  // Make a container reorder its items live while a same-context drag is over it.
-  function enableReorder(container, context, axis, selector) {
-    container.addEventListener("dragover", function (e) {
-      if (!draggingEl || dragContext !== context) return;
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-      const items = container.querySelectorAll(selector + ":not(.dragging)");
-      const after = dragAfterElement(items, axis, e);
-      if (after) {
-        container.insertBefore(draggingEl, after);
-      } else if (items.length) {
-        // Past the last item: drop it right after that item (in the bar this
-        // keeps the chip ahead of the folder/add controls).
-        items[items.length - 1].after(draggingEl);
-      }
-    });
-  }
-
-  function makeDraggable(el, bm, context) {
-    el._bm = bm;
-    el.draggable = true;
-    el.addEventListener("dragstart", function (e) {
-      draggingEl = el;
-      dragContext = context;
-      // Deferred so the drag image is the solid chip, not the dimmed one.
-      setTimeout(function () {
-        el.classList.add("dragging");
-      }, 0);
-      if (e.dataTransfer) {
-        e.dataTransfer.effectAllowed = "move";
-        try {
-          e.dataTransfer.setData("text/plain", "");
-        } catch (err) {
-          /* some browsers require a set; ignore failures */
-        }
-      }
-    });
-    el.addEventListener("dragend", function () {
-      el.classList.remove("dragging");
-      // If the element is still in the DOM, a reorder happened; commit it.
-      // (If it was moved into the folder, that handler already re-rendered.)
-      if (draggingEl && document.contains(draggingEl)) commitOrder(context);
-      draggingEl = null;
-      dragContext = null;
-    });
-  }
-
-  // A bookmark chip for the main bar.
-  function makeBookmark(bm, i) {
+  // A bookmark chip in the bar.
+  function makeBookmarkChip(node) {
     const a = document.createElement("a");
     a.className = "quicklink custom";
-    a.href = bm.href;
-    const icon = makeFavicon(bm);
+    a.href = node.url;
+    a.title = node.title || node.url;
+    const icon = makeFavicon(node.url);
     if (icon) a.appendChild(icon);
     const span = document.createElement("span");
-    span.textContent = bm.label;
+    span.textContent = node.title || labelFromUrl(node.url);
     a.appendChild(span);
-    a.appendChild(
-      actionButton("quicklink-remove", "Remove bookmark", "×", function () {
-        removeBookmark(i);
-      }),
-    );
-    // Reorder within the bar, or drag onto the folder chip to tuck it away.
-    makeDraggable(a, bm, "bar");
     return a;
   }
 
-  // A bookmark row inside the folder pop-up.
-  function makeFolderItem(bm, i) {
+  // A bookmark link row inside a folder pop-up.
+  function makeFolderLink(node, depth) {
     const row = document.createElement("div");
     row.className = "folder-item";
+    row.style.paddingLeft = 0.5 + depth * 0.85 + "rem";
     const a = document.createElement("a");
     a.className = "folder-item-link";
-    a.href = bm.href;
-    const icon = makeFavicon(bm);
+    a.href = node.url;
+    a.title = node.title || node.url;
+    const icon = makeFavicon(node.url);
     if (icon) a.appendChild(icon);
     const span = document.createElement("span");
-    span.textContent = bm.label;
+    span.textContent = node.title || labelFromUrl(node.url);
     a.appendChild(span);
     row.appendChild(a);
-    row.appendChild(
-      actionButton("quicklink-action", "Move to bar", SVG_TO_BAR, function () {
-        setBookmarkFolder(i, false);
-      }),
-    );
-    row.appendChild(
-      actionButton("quicklink-remove", "Remove bookmark", "×", function () {
-        removeBookmark(i);
-      }),
-    );
-    makeDraggable(row, bm, "folder");
     return row;
   }
 
-  function makeFolderControl(folderEntries) {
-    const wrap = document.createElement("div");
-    wrap.className = "folder-wrap";
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "quicklink quicklink-folder" + (folderOpen ? " open" : "");
-    btn.innerHTML = SVG_FOLDER + (folderEntries.length ? "<span>" + folderEntries.length + "</span>" : "");
-    btn.setAttribute("aria-label", "Saved bookmarks folder");
-    btn.addEventListener("click", function () {
-      folderOpen = !folderOpen;
-      renderQuickLinks();
-    });
-    // Drop a bar bookmark onto the folder to tuck it away. stopPropagation
-    // keeps the bar's live-reorder handler from also firing while over the chip.
-    btn.addEventListener("dragover", function (e) {
-      if (!draggingEl || dragContext !== "bar") return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-      btn.classList.add("drop-target");
-    });
-    btn.addEventListener("dragleave", function () {
-      btn.classList.remove("drop-target");
-    });
-    btn.addEventListener("drop", function (e) {
-      if (!draggingEl || dragContext !== "bar") return;
-      e.preventDefault();
-      e.stopPropagation();
-      btn.classList.remove("drop-target");
-      const bm = draggingEl._bm;
-      if (bm) {
-        bm.folder = true;
-        saveBookmarks();
-        folderOpen = true;
-        renderQuickLinks();
+  // A subfolder heading inside a folder pop-up; its children follow, indented.
+  function makeSubfolderHeader(node, depth) {
+    const h = document.createElement("div");
+    h.className = "folder-subhead";
+    h.style.paddingLeft = 0.5 + depth * 0.85 + "rem";
+    h.innerHTML = SVG_FOLDER;
+    const span = document.createElement("span");
+    span.textContent = node.title || "Folder";
+    h.appendChild(span);
+    return h;
+  }
+
+  function renderNodesInto(container, nodes, depth) {
+    nodes.forEach(function (node) {
+      if (node.url) {
+        container.appendChild(makeFolderLink(node, depth));
+      } else {
+        container.appendChild(makeSubfolderHeader(node, depth));
+        renderNodesInto(container, node.children || [], depth + 1);
       }
     });
+  }
+
+  // A folder chip in the bar that opens a pop-up of its contents.
+  function makeFolderControl(node) {
+    const wrap = document.createElement("div");
+    wrap.className = "folder-wrap";
+    const isOpen = openFolderId === node.id;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "quicklink quicklink-folder" + (isOpen ? " open" : "");
+    btn.innerHTML = SVG_FOLDER;
+    const label = document.createElement("span");
+    label.textContent = node.title || "Folder";
+    btn.appendChild(label);
+    btn.setAttribute("aria-label", (node.title || "Folder") + " bookmarks");
+    btn.addEventListener("click", function () {
+      openFolderId = isOpen ? null : node.id;
+      renderQuickLinks();
+    });
     wrap.appendChild(btn);
-    if (folderOpen) {
+    if (isOpen) {
       const pop = document.createElement("div");
       pop.className = "folder-popover";
-      enableReorder(pop, "folder", "y", ".folder-item");
-      if (folderEntries.length) {
-        folderEntries.forEach(function (entry) {
-          pop.appendChild(makeFolderItem(entry.bm, entry.i));
-        });
+      const children = node.children || [];
+      if (children.length) {
+        renderNodesInto(pop, children, 0);
       } else {
         const empty = document.createElement("p");
         empty.className = "folder-empty";
-        empty.textContent = "Drag a bookmark onto the folder to tuck it away.";
+        empty.textContent = "This folder is empty.";
         pop.appendChild(empty);
       }
       wrap.appendChild(pop);
     }
     return wrap;
-  }
-
-  function makeAddControl() {
-    if (!addingBookmark) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "quicklink quicklink-add";
-      btn.textContent = "+ Add";
-      btn.addEventListener("click", function () {
-        addingBookmark = true;
-        renderQuickLinks();
-        const url = $("bm-url");
-        if (url) url.focus();
-      });
-      return btn;
-    }
-
-    const form = document.createElement("form");
-    form.className = "bookmark-form";
-
-    const label = document.createElement("input");
-    label.className = "bookmark-input";
-    label.type = "text";
-    label.placeholder = "Name (optional)";
-    label.autocomplete = "off";
-
-    const url = document.createElement("input");
-    url.id = "bm-url";
-    url.className = "bookmark-input";
-    url.type = "text";
-    url.placeholder = "example.com";
-    url.autocomplete = "off";
-    url.spellcheck = false;
-
-    const iconCb = document.createElement("input");
-    iconCb.type = "checkbox";
-    iconCb.checked = true;
-    const iconLabel = document.createElement("label");
-    iconLabel.className = "bookmark-check";
-    iconLabel.appendChild(iconCb);
-    iconLabel.appendChild(document.createTextNode("Icon"));
-
-    const folderCb = document.createElement("input");
-    folderCb.type = "checkbox";
-    const folderLabel = document.createElement("label");
-    folderLabel.className = "bookmark-check";
-    folderLabel.appendChild(folderCb);
-    folderLabel.appendChild(document.createTextNode("Folder"));
-
-    const save = document.createElement("button");
-    save.type = "submit";
-    save.className = "bookmark-btn save";
-    save.textContent = "Save";
-
-    const cancel = document.createElement("button");
-    cancel.type = "button";
-    cancel.className = "bookmark-btn";
-    cancel.textContent = "Cancel";
-    cancel.addEventListener("click", function () {
-      addingBookmark = false;
-      renderQuickLinks();
-    });
-
-    form.appendChild(label);
-    form.appendChild(url);
-    form.appendChild(iconLabel);
-    form.appendChild(folderLabel);
-    form.appendChild(save);
-    form.appendChild(cancel);
-
-    form.addEventListener("submit", function (e) {
-      e.preventDefault();
-      const href = normalizeUrl(url.value);
-      if (!href) {
-        url.focus();
-        return;
-      }
-      bookmarks.push({
-        label: label.value.trim() || labelFromUrl(href),
-        href: href,
-        icon: iconCb.checked,
-        folder: folderCb.checked,
-      });
-      saveBookmarks();
-      addingBookmark = false;
-      if (folderCb.checked) folderOpen = true;
-      renderQuickLinks();
-    });
-
-    return form;
   }
 
   function renderQuickLinks() {
@@ -462,30 +220,44 @@
     QUICK_LINKS.forEach(function (link) {
       nav.appendChild(makeDefaultLink(link));
     });
-
-    const folderEntries = [];
-    bookmarks.forEach(function (bm, i) {
-      if (bm.folder) folderEntries.push({ bm: bm, i: i });
-      else nav.appendChild(makeBookmark(bm, i));
+    barNodes.forEach(function (node) {
+      if (node.url) nav.appendChild(makeBookmarkChip(node));
+      else nav.appendChild(makeFolderControl(node));
     });
+  }
 
-    // Show the folder chip whenever there are custom bookmarks, so it's always
-    // available as a drop target (even before anything is tucked inside).
-    if (bookmarks.length) nav.appendChild(makeFolderControl(folderEntries));
-    else folderOpen = false;
-
-    nav.appendChild(makeAddControl());
+  function loadBarNodes() {
+    const api = bookmarksApi();
+    if (!api) {
+      barNodes = [];
+      renderQuickLinks();
+      return;
+    }
+    api.getSubTree(BOOKMARK_BAR_ID, function (results) {
+      if (chrome.runtime && chrome.runtime.lastError) {
+        barNodes = [];
+      } else {
+        barNodes = (results && results[0] && results[0].children) || [];
+      }
+      renderQuickLinks();
+    });
   }
 
   function initQuickLinks() {
-    bookmarks = loadBookmarks();
-    // The bar container persists across renders, so wire live reorder once.
-    enableReorder($("quicklinks"), "bar", "x", ".quicklink.custom");
-    renderQuickLinks();
-    // Close the folder pop-up when clicking anywhere outside it.
+    const api = bookmarksApi();
+    loadBarNodes();
+    // Live-update the bar when the browser's bookmarks change.
+    if (api) {
+      ["onCreated", "onRemoved", "onChanged", "onMoved", "onChildrenReordered"].forEach(
+        function (ev) {
+          if (api[ev] && api[ev].addListener) api[ev].addListener(loadBarNodes);
+        },
+      );
+    }
+    // Close an open folder pop-up when clicking outside it.
     document.addEventListener("click", function (e) {
-      if (folderOpen && !e.target.closest(".folder-wrap")) {
-        folderOpen = false;
+      if (openFolderId && !e.target.closest(".folder-wrap")) {
+        openFolderId = null;
         renderQuickLinks();
       }
     });

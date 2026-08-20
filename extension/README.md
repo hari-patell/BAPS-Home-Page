@@ -31,8 +31,11 @@ To update after pulling changes, click the **reload** icon on the extension card
 - **Cloudflare clearance:** if you see "Couldn't reach baps.org (Cloudflare)",
   just open <https://www.baps.org/> once in the same browser and reload the new
   tab — that gives your browser the clearance cookie the fetch needs.
-- **Permissions:** the manifest requests host access to `*.baps.org` only, so it
-  can read those pages and images. No other sites, no tracking, no server.
+- **Permissions:** the manifest requests host access to `*.baps.org` (to read
+  those pages and images), plus `bookmarks` and `favicon` so the quick-links row
+  can mirror your browser's Bookmarks Bar — its bookmarks, folders, and favicons
+  — read-only. Nothing is written back, no tracking, no server. On install/reload
+  the browser will ask to "Read your bookmarks"; that's what powers the mirror.
 - **Icons:** none are bundled, so the browser shows a default puzzle-piece icon
   on the extensions page. Drop `icon16.png` / `icon48.png` / `icon128.png` into
   this folder and add an `"icons"` block to `manifest.json` if you want one.
