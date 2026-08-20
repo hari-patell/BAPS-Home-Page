@@ -62,8 +62,12 @@
   }
 
   // ---------- quick links + user bookmarks ----------
+  // A bookmark is { label, href, icon: bool, folder: bool }. `folder` ones are
+  // tucked into a pop-up folder instead of the main bar. `icon` toggles a
+  // site favicon beside the label.
   let bookmarks = [];
   let addingBookmark = false;
+  let folderOpen = false;
 
   function loadBookmarks() {
     try {
@@ -93,6 +97,53 @@
       return url;
     }
   }
+  function faviconUrl(href) {
+    try {
+      const host = new URL(href).hostname;
+      return "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(host);
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Small icon-button factory (used for move/remove actions on bookmarks).
+  function actionButton(className, title, svg, onClick) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = className;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.innerHTML = svg;
+    b.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      onClick();
+    });
+    return b;
+  }
+
+  const SVG_FOLDER =
+    '<svg class="mini-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a1.5 1.5 0 0 0 1.5-1.5V8.5A1.5 1.5 0 0 0 20 7h-7l-2-2H4a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 4 20Z"/></svg>';
+  const SVG_TO_FOLDER =
+    '<svg class="mini-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v9"/><path d="M8.5 9.5 12 13l3.5-3.5"/><path d="M5 20h14"/></svg>';
+  const SVG_TO_BAR =
+    '<svg class="mini-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20v-9"/><path d="M8.5 14.5 12 11l3.5 3.5"/><path d="M5 4h14"/></svg>';
+
+  function makeFavicon(bm) {
+    if (!bm.icon) return null;
+    const url = faviconUrl(bm.href);
+    if (!url) return null;
+    const img = document.createElement("img");
+    img.className = "bm-favicon";
+    img.src = url;
+    img.alt = "";
+    img.referrerPolicy = "no-referrer";
+    // Fall back to a text-only chip if the favicon can't be fetched.
+    img.addEventListener("error", function () {
+      img.remove();
+    });
+    return img;
+  }
 
   function makeDefaultLink(link) {
     const a = document.createElement("a");
@@ -102,27 +153,88 @@
     return a;
   }
 
+  function removeBookmark(i) {
+    bookmarks.splice(i, 1);
+    saveBookmarks();
+    renderQuickLinks();
+  }
+  function setBookmarkFolder(i, inFolder) {
+    bookmarks[i].folder = inFolder;
+    saveBookmarks();
+    renderQuickLinks();
+  }
+
+  // A bookmark chip for the main bar.
   function makeBookmark(bm, i) {
     const a = document.createElement("a");
     a.className = "quicklink custom";
     a.href = bm.href;
+    const icon = makeFavicon(bm);
+    if (icon) a.appendChild(icon);
     const span = document.createElement("span");
     span.textContent = bm.label;
     a.appendChild(span);
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "quicklink-remove";
-    del.setAttribute("aria-label", "Remove bookmark");
-    del.textContent = "×";
-    del.addEventListener("click", function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      bookmarks.splice(i, 1);
-      saveBookmarks();
+    a.appendChild(
+      actionButton("quicklink-action", "Move to folder", SVG_TO_FOLDER, function () {
+        setBookmarkFolder(i, true);
+      }),
+    );
+    a.appendChild(
+      actionButton("quicklink-remove", "Remove bookmark", "×", function () {
+        removeBookmark(i);
+      }),
+    );
+    return a;
+  }
+
+  // A bookmark row inside the folder pop-up.
+  function makeFolderItem(bm, i) {
+    const row = document.createElement("div");
+    row.className = "folder-item";
+    const a = document.createElement("a");
+    a.className = "folder-item-link";
+    a.href = bm.href;
+    const icon = makeFavicon(bm);
+    if (icon) a.appendChild(icon);
+    const span = document.createElement("span");
+    span.textContent = bm.label;
+    a.appendChild(span);
+    row.appendChild(a);
+    row.appendChild(
+      actionButton("quicklink-action", "Move to bar", SVG_TO_BAR, function () {
+        setBookmarkFolder(i, false);
+      }),
+    );
+    row.appendChild(
+      actionButton("quicklink-remove", "Remove bookmark", "×", function () {
+        removeBookmark(i);
+      }),
+    );
+    return row;
+  }
+
+  function makeFolderControl(folderEntries) {
+    const wrap = document.createElement("div");
+    wrap.className = "folder-wrap";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "quicklink quicklink-folder" + (folderOpen ? " open" : "");
+    btn.innerHTML = SVG_FOLDER + "<span>" + folderEntries.length + "</span>";
+    btn.setAttribute("aria-label", "Saved bookmarks folder");
+    btn.addEventListener("click", function () {
+      folderOpen = !folderOpen;
       renderQuickLinks();
     });
-    a.appendChild(del);
-    return a;
+    wrap.appendChild(btn);
+    if (folderOpen) {
+      const pop = document.createElement("div");
+      pop.className = "folder-popover";
+      folderEntries.forEach(function (entry) {
+        pop.appendChild(makeFolderItem(entry.bm, entry.i));
+      });
+      wrap.appendChild(pop);
+    }
+    return wrap;
   }
 
   function makeAddControl() {
@@ -157,6 +269,21 @@
     url.autocomplete = "off";
     url.spellcheck = false;
 
+    const iconCb = document.createElement("input");
+    iconCb.type = "checkbox";
+    iconCb.checked = true;
+    const iconLabel = document.createElement("label");
+    iconLabel.className = "bookmark-check";
+    iconLabel.appendChild(iconCb);
+    iconLabel.appendChild(document.createTextNode("Icon"));
+
+    const folderCb = document.createElement("input");
+    folderCb.type = "checkbox";
+    const folderLabel = document.createElement("label");
+    folderLabel.className = "bookmark-check";
+    folderLabel.appendChild(folderCb);
+    folderLabel.appendChild(document.createTextNode("Folder"));
+
     const save = document.createElement("button");
     save.type = "submit";
     save.className = "bookmark-btn save";
@@ -173,6 +300,8 @@
 
     form.appendChild(label);
     form.appendChild(url);
+    form.appendChild(iconLabel);
+    form.appendChild(folderLabel);
     form.appendChild(save);
     form.appendChild(cancel);
 
@@ -183,9 +312,15 @@
         url.focus();
         return;
       }
-      bookmarks.push({ label: label.value.trim() || labelFromUrl(href), href: href });
+      bookmarks.push({
+        label: label.value.trim() || labelFromUrl(href),
+        href: href,
+        icon: iconCb.checked,
+        folder: folderCb.checked,
+      });
       saveBookmarks();
       addingBookmark = false;
+      if (folderCb.checked) folderOpen = true;
       renderQuickLinks();
     });
 
@@ -198,15 +333,29 @@
     QUICK_LINKS.forEach(function (link) {
       nav.appendChild(makeDefaultLink(link));
     });
+
+    const folderEntries = [];
     bookmarks.forEach(function (bm, i) {
-      nav.appendChild(makeBookmark(bm, i));
+      if (bm.folder) folderEntries.push({ bm: bm, i: i });
+      else nav.appendChild(makeBookmark(bm, i));
     });
+
+    if (folderEntries.length) nav.appendChild(makeFolderControl(folderEntries));
+    else folderOpen = false;
+
     nav.appendChild(makeAddControl());
   }
 
   function initQuickLinks() {
     bookmarks = loadBookmarks();
     renderQuickLinks();
+    // Close the folder pop-up when clicking anywhere outside it.
+    document.addEventListener("click", function (e) {
+      if (folderOpen && !e.target.closest(".folder-wrap")) {
+        folderOpen = false;
+        renderQuickLinks();
+      }
+    });
   }
 
   // ---------- image helper ----------

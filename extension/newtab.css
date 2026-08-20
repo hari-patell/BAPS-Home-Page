@@ -269,6 +269,125 @@ a {
   background: color-mix(in srgb, var(--shurvirta) 88%, white);
 }
 
+/* Optional favicon shown beside a bookmark label. */
+.bm-favicon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  border-radius: 0.25rem;
+  object-fit: contain;
+}
+
+/* Small move/remove action buttons on bookmark chips and folder rows. */
+.quicklink-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.15rem;
+  width: 1.15rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--asmita) 45%, transparent);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.quicklink-action:hover {
+  background: color-mix(in srgb, var(--asmita) 15%, transparent);
+  color: var(--asmita);
+}
+.mini-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Folder chip + pop-up of tucked-away bookmarks. */
+.folder-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.quicklink-folder {
+  gap: 0.4rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+.quicklink-folder.open {
+  border-color: color-mix(in srgb, var(--shurvirta) 55%, transparent);
+  color: var(--shurvirta);
+}
+.quicklink-folder .mini-icon {
+  width: 1rem;
+  height: 1rem;
+}
+.folder-popover {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 13rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.4rem;
+  border-radius: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--asmita) 12%, transparent);
+  background: color-mix(in srgb, var(--ink-2) 92%, black);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+}
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.3rem 0.1rem 0.5rem;
+  border-radius: 0.6rem;
+}
+.folder-item:hover {
+  background: color-mix(in srgb, var(--asmita) 8%, transparent);
+}
+.folder-item-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.15rem;
+  font-size: 0.85rem;
+  color: color-mix(in srgb, var(--asmita) 80%, transparent);
+  text-decoration: none;
+}
+.folder-item-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-item-link:hover {
+  color: var(--shurvirta);
+}
+
+/* Icon / Folder checkboxes in the add form. */
+.bookmark-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--asmita) 65%, transparent);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bookmark-check input {
+  accent-color: var(--shurvirta);
+  cursor: pointer;
+}
+
 /* ---------- Main ---------- */
 .main {
   width: 100%;
