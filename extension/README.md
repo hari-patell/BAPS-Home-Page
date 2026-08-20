@@ -17,14 +17,45 @@ has from normal browsing, and images load straight from baps.org's CDN. It also
 caches the last result in `localStorage`, so a new tab paints instantly and then
 refreshes in the background.
 
-## Install (unpacked)
+## Install
 
-1. Open `chrome://extensions` (or `edge://extensions`).
-2. Turn on **Developer mode** (top-right).
-3. Click **Load unpacked** and select this `extension/` folder.
+Chrome only allows extensions from the Web Store to be double-click installed,
+so this one loads **unpacked** (that's normal for a self-hosted extension). Pick
+whichever download is easier — both end at the same "Load unpacked" step.
+
+### Option A — download the packaged zip (no git needed)
+
+1. Go to the repo's [**Releases**](../../releases) page and download
+   `baps-daily-darshan-extension.zip` from the latest release.
+2. Unzip it — you'll get a folder containing `manifest.json`.
+3. Open `chrome://extensions` (or `edge://extensions`) and turn on
+   **Developer mode** (top-right).
+4. Click **Load unpacked** and select the unzipped folder.
+5. Open a new tab.
+
+_(No release yet? Use Option B, or ask a maintainer to publish one — see
+"Publishing a release" below.)_
+
+### Option B — from a copy of the repo
+
+1. Download the whole repo (green **Code** button → **Download ZIP**) and unzip,
+   or `git clone` it.
+2. Open `chrome://extensions` (or `edge://extensions`) and turn on
+   **Developer mode** (top-right).
+3. Click **Load unpacked** and select the `extension/` folder.
 4. Open a new tab.
 
-To update after pulling changes, click the **reload** icon on the extension card.
+To update after pulling changes (Option B) or installing a newer zip (Option A),
+click the **reload** icon on the extension card.
+
+## Publishing a release (maintainers)
+
+The [`Package extension`](../.github/workflows/package-extension.yml) workflow
+builds `baps-daily-darshan-extension.zip` (just this `extension/` folder). Create
+a GitHub Release (tag it, e.g. `ext-v1.0.0`) and the workflow attaches the zip to
+it automatically, giving users the one-file download in Option A. You can also
+run the workflow manually from the **Actions** tab to grab the zip as a build
+artifact without cutting a release.
 
 ## Requirements / notes
 

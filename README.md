@@ -9,6 +9,18 @@ Daily Audio.
 Built with Next.js (App Router), TypeScript, and Tailwind CSS v4. Deployed on
 Vercel.
 
+## Browser extension
+
+There's also a **Chrome/Edge new-tab extension** in [`extension/`](extension/)
+that shows the same dashboard, runs entirely in your browser (no server), and
+turns your new-tab page into the darshan dashboard with a quick-links row that
+mirrors your Bookmarks Bar.
+
+**Install:** download `baps-daily-darshan-extension.zip` from the
+[Releases](../../releases) page, unzip it, then load it at `chrome://extensions`
+→ **Developer mode** → **Load unpacked**. Full instructions (and a no-release
+fallback) are in [`extension/README.md`](extension/README.md).
+
 ## How it works
 
 There's no official BAPS API, so `src/lib/scrape/` fetches the two public
