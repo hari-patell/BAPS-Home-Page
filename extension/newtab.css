@@ -70,19 +70,22 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
   color: color-mix(in srgb, var(--shurvirta) 90%, transparent);
 }
-.brand-rule {
-  height: 1px;
-  width: 4rem;
-  background: color-mix(in srgb, var(--shurvirta) 40%, transparent);
-}
 .brand-title {
+  display: flex;
+  align-items: center;
+  margin: 0;
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 1.5rem;
   letter-spacing: 0.02em;
+}
+/* The brand image stays roughly the height of the text it replaced. */
+.brand-img {
+  height: 2rem;
+  width: auto;
+  display: block;
 }
 
 .header-row {
