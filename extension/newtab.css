@@ -432,6 +432,17 @@ a {
 .round-btn:hover {
   background: rgba(0, 0, 0, 0.72);
 }
+/* SVG chevrons center exactly inside the flex button, unlike the ‹ › text
+   glyphs which carry uneven side-bearings. */
+.chevron {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .stage-caption,
 .darshan-caption {
   position: absolute;
@@ -731,4 +742,36 @@ a {
 }
 .lightbox-close:hover {
   background: rgba(0, 0, 0, 0.72);
+}
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 3rem;
+  width: 3rem;
+  border-radius: 999px;
+  border: none;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--asmita);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.lightbox-nav:hover {
+  background: rgba(0, 0, 0, 0.72);
+}
+.lightbox-nav .chevron {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+.lightbox-prev {
+  left: 1.5rem;
+}
+.lightbox-next {
+  right: 1.5rem;
+}
+.lightbox-nav[hidden] {
+  display: none;
 }

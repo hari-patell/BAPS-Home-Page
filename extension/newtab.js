@@ -365,35 +365,77 @@
   }
 
   // ---------- lightbox (full-screen image preview) ----------
-  function openLightbox(src, caption) {
-    if (!src) return;
-    $("lightbox-img").src = src;
+  const lb = { items: [], index: 0 };
+
+  function lbRender() {
+    const item = lb.items[lb.index];
+    if (!item) return;
+    $("lightbox-img").src = item.src;
     const cap = $("lightbox-caption");
-    cap.textContent = caption || "";
-    cap.hidden = !caption;
+    cap.textContent = item.caption || "";
+    cap.hidden = !item.caption;
+    const multi = lb.items.length > 1;
+    $("lightbox-prev").hidden = !multi;
+    $("lightbox-next").hidden = !multi;
+  }
+  function lbGo(delta) {
+    const n = lb.items.length;
+    if (n < 2) return;
+    lb.index = (((lb.index + delta) % n) + n) % n;
+    lbRender();
+  }
+  function openLightbox(items, index) {
+    if (!items || !items.length) return;
+    lb.items = items;
+    lb.index = index || 0;
+    lbRender();
     $("lightbox").hidden = false;
   }
   function closeLightbox() {
     $("lightbox").hidden = true;
     $("lightbox-img").src = "";
   }
+  function lbIsOpen() {
+    return !$("lightbox").hidden;
+  }
+
   function initLightbox() {
-    // Click the backdrop (anything but the image itself) or the close button
-    // to dismiss.
+    // Click the backdrop itself (not the image or a control) to dismiss.
     $("lightbox").addEventListener("click", function (e) {
-      if (e.target !== $("lightbox-img")) closeLightbox();
+      if (e.target === $("lightbox")) closeLightbox();
     });
     $("lightbox-close").addEventListener("click", closeLightbox);
-    document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") closeLightbox();
+    $("lightbox-prev").addEventListener("click", function () {
+      lbGo(-1);
     });
+    $("lightbox-next").addEventListener("click", function () {
+      lbGo(1);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (!lbIsOpen()) return;
+      if (e.key === "Escape") closeLightbox();
+      else if (e.key === "ArrowLeft") lbGo(-1);
+      else if (e.key === "ArrowRight") lbGo(1);
+    });
+
     $("vic-image").addEventListener("click", function () {
-      const photo = vic.photos[vic.index];
-      if (photo) openLightbox(photo.image, photo.caption || vic.label);
+      if (!vic.photos.length) return;
+      openLightbox(
+        vic.photos.map(function (p) {
+          return { src: p.image, caption: p.caption || vic.label };
+        }),
+        vic.index,
+      );
     });
     $("darshan-image").addEventListener("click", function () {
-      const current = darshanActive()[darshan.index];
-      if (current) openLightbox(current.src, current.caption);
+      const active = darshanActive();
+      if (!active.length) return;
+      openLightbox(
+        active.map(function (d) {
+          return { src: d.src, caption: d.caption };
+        }),
+        darshan.index,
+      );
     });
   }
 
