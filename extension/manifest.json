@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "BAPS Daily Darshan",
+  "version": "1.0.0",
+  "description": "A new-tab dashboard of BAPS Daily Darshan, the latest Vicharan photos, Vachanamrut and Satsang — pulled live from baps.org in your browser.",
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  },
+  "permissions": ["bookmarks", "favicon"],
+  "host_permissions": [
+    "https://www.baps.org/*",
+    "https://*.baps.org/*"
+  ]
+}

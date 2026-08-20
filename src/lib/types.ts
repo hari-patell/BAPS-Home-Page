@@ -17,11 +17,10 @@ export interface TextBlock {
   citation?: string;
 }
 
-export interface VicharanEntry {
-  date: string;
-  location: string;
-  image?: string;
-  href?: string;
+/** A single photo from a Vicharan day page, with its on-page caption. */
+export interface VicharanPhoto {
+  image: string;
+  caption?: string;
 }
 
 export interface DailySatsangData {
@@ -40,7 +39,14 @@ export interface DailySatsangData {
 }
 
 export interface VicharanData {
-  entries: VicharanEntry[];
+  /** The day these photos are from, e.g. "18-Aug-2026". */
+  date?: string;
+  /** Where that day's Vicharan took place, e.g. "Ahmedabad, India". */
+  location?: string;
+  /** The day page all the photos were pulled from. */
+  detailUrl?: string;
+  /** Every photo on the latest day's page, in document order. */
+  photos: VicharanPhoto[];
   scheduleNote?: string;
   scheduleHref?: string;
   sourceUrl: string;

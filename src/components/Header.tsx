@@ -8,8 +8,8 @@ export function Header({ hinduDate }: { hinduDate?: string }) {
     <header className="mx-auto w-full max-w-7xl px-4 pt-8 sm:px-6 lg:px-8">
       <div className="flex items-center justify-center gap-4 text-shurvirta/90">
         <span className="h-px w-10 bg-shurvirta/40 sm:w-16" />
-        <h1 className="font-display text-xl italic tracking-wide sm:text-2xl">
-          Jay Swaminarayan
+        <h1 className="font-display text-xl tracking-wide sm:text-2xl">
+          Jai Swaminarayan
         </h1>
         <span className="h-px w-10 bg-shurvirta/40 sm:w-16" />
       </div>

@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import { revalidateTag, unstable_cache } from "next/cache";
 import { SOURCES } from "@/lib/config";
-import type { VicharanData, VicharanEntry } from "@/lib/types";
+import type { VicharanData, VicharanPhoto } from "@/lib/types";
 import { absoluteUrl, cleanText, fetchHtml } from "./fetchHtml";
 import {
   DATE_TOKEN_RE,
@@ -13,29 +13,25 @@ import {
 
 const LOCATION_SPLIT_RE = /[—–-]\s*/;
 
-// Each entry's better photo lives on its own detail page, and every one of
-// those is a real browser navigation (see lib/scrape/clearance.ts) — so
-// these cost both memory and time, and all of it has to fit inside the
-// function's 60s ceiling alongside Chromium cold-start and the Cloudflare
-// solve. Hence: few of them, a handful at a time, short per-page timeout,
-// and a hard deadline for the phase as a whole.
-const MAX_ENTRIES = 6;
-// A day page never changes once published, so its photo is worth caching
+// A day page never changes once published, so its photos are worth caching
 // far longer than the dashboard itself.
 const DETAIL_PHOTO_TTL_S = 24 * 60 * 60;
-// Detail pages are fetched one at a time. Two simultaneous navigations to
-// baps.org prompt Cloudflare to re-issue a challenge mid-flight — the same
-// race that made one of the two top-level sources fail while the other
-// succeeded (see lib/data.ts). Running them concurrently is why every
-// entry was falling back to its listing thumbnail.
-const MAX_DETAIL_FETCHES = MAX_ENTRIES;
-const DETAIL_FETCH_CONCURRENCY = 1;
-const DETAIL_PHASE_BUDGET_MS = 24000;
-// Day pages come back challenged when fetched back-to-back, even though the
-// host is cleared and the listing page itself loads fine — Cloudflare is
-// reacting to the burst, not to us. A pause between them buys far more
-// photos than the second or so it costs.
+// The whole feature now hangs on one detail navigation — the newest day's
+// page — so it gets a real timeout and a genuine re-solve budget rather than
+// the clipped one the old "bonus photo per day" fetches used.
+const DETAIL_FETCH_TIMEOUT_MS = 15000;
+// The listing page and the day page are two navigations to the same host
+// back-to-back, and Cloudflare challenges the second one purely because of
+// the burst — even though the host is already cleared and the listing loaded
+// fine. A short pause between them is what buys the day page's photos rather
+// than a challenge; without it the day page reliably comes back challenged
+// and the panel falls back to the lone listing thumbnail.
 const DETAIL_FETCH_SPACING_MS = 1500;
+
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 function splitDateLocation(
   caption: string | undefined,
@@ -81,91 +77,69 @@ function normaliseDate(raw: string): string | undefined {
   return `${Number(m[1])}-${month}-${m[3]}`;
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Runs `fn` over `items` with at most `limit` in flight at once. */
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  async function worker() {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i], i);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
+/** `18-Aug-2026` -> 20260818, so days sort chronologically as numbers. */
+function dateSortKey(date: string): number {
+  const m = date.match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})/);
+  if (!m) return 0;
+  const month = MONTHS.indexOf(m[2]) + 1;
+  if (month === 0) return 0;
+  return Number(m[3]) * 10000 + month * 100 + Number(m[1]);
 }
 
-/**
- * Each Vicharan thumbnail links to that day's own page, which — per a live
- * screenshot from the actual site — holds a better photo than the listing
- * thumbnail (the thumbnails there carry a video-play badge, i.e. they're
- * video posters, not necessarily the best still photo for that day). Falls
- * back to the listing thumbnail if the detail page fails to load or has no
- * usable image, so one bad detail page never drops an entry entirely.
- */
-// Short timeout — these are bonus fetches with a graceful thumbnail
-// fallback, so failing fast on a slow detail page beats risking the whole
-// route's maxDuration budget.
-const DETAIL_FETCH_TIMEOUT_MS = 9000;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const THUMBNAIL_PATH_RE = /\/Thumbnails\//i;
 
-async function fetchBetterPhoto(
-  href: string,
-  expectedDate: string,
-): Promise<string> {
-  try {
-    const html = await fetchHtml(href, {
-      timeoutMs: DETAIL_FETCH_TIMEOUT_MS,
-      // Two, not three: a challenged day page gets one genuine re-solve,
-      // because Cloudflare stops honouring the session's clearance after a
-      // couple of rapid page loads and every day page after that is refused
-      // until it's re-earned. Beyond two, the thumbnail fallback plus the
-      // day-photo cache is the better trade.
-      maxAttempts: 2,
-    });
-    const $ = cheerio.load(html);
-    const candidates = toContentImages(collectImages($, href));
+/**
+ * Reads every full-size photo off a single Vicharan day page, in document
+ * order, keeping each one's on-page caption ("BAPS Shri Swaminarayan Mandir,
+ * Ahmedabad", "Shri Ghanshyam Maharaj", ...).
+ *
+ * Day pages serve the full-size photo out of the same /Media/ tree as the
+ * listing, just outside /Thumbnails/ — that path segment is the only
+ * reliable full-vs-blurry signal, and it also drops the small
+ * neighbouring-day links a day page carries at the bottom.
+ */
+async function fetchDayPhotos(href: string, deadline?: number): Promise<VicharanPhoto[]> {
+  const html = await fetchHtml(href, {
+    timeoutMs: DETAIL_FETCH_TIMEOUT_MS,
+    // One detail page per scrape now, not six — it can afford the full
+    // re-solve budget the old per-day bonus fetches had to skimp on. A
+    // burst-challenged day page needs the forced re-solve on attempt 2.
+    maxAttempts: 3,
+    // Bounded by the scrape's own wall-clock deadline so a stubborn challenge
+    // can't push the whole dashboard past its 60s ceiling.
+    deadline,
+  });
+  const $ = cheerio.load(html);
+  const candidates = toContentImages(collectImages($, href));
 
-    // Detail pages serve the full-size photo out of the same /Media/ tree as
-    // the listing, just outside /Thumbnails/ — that path segment is the only
-    // reliable full-vs-blurry signal, since both share a filename.
-    const full = candidates.filter((c) => !THUMBNAIL_PATH_RE.test(c.src));
-
-    // A day's page also links out to neighbouring days, so prefer a photo
-    // whose own filename stamp matches the day we asked for before falling
-    // back to document order.
-    const sameDay = full.find((c) => dateFromFilename(c.src) === expectedDate);
-    const src = (sameDay ?? full[0] ?? candidates[0])?.src;
-    if (!src) throw new Error(`no usable photo on ${href}`);
-    return src;
-  } catch {
-    // Deliberately rethrown rather than resolved as undefined: the caller
-    // caches this, and caching "no photo" for a day would pin the blurry
-    // thumbnail in place long after a transient failure.
-    throw new Error(`no photo for ${href}`);
+  const photos: VicharanPhoto[] = [];
+  const seen = new Set<string>();
+  for (const c of candidates) {
+    if (THUMBNAIL_PATH_RE.test(c.src) || seen.has(c.src)) continue;
+    seen.add(c.src);
+    // collectImages already looks outward from the image for the caption
+    // ("BAPS Shri Swaminarayan Mandir, Ahmedabad") and caps its length.
+    const caption = cleanText(c.caption) || undefined;
+    photos.push({ image: c.src, caption });
   }
+  if (photos.length === 0) throw new Error(`no photos on ${href}`);
+  return photos;
 }
 
 /**
  * Day-page photos are cached per URL, well beyond the dashboard's own 30
- * minutes. Only a genuinely new day costs a navigation, so after the first
- * couple of runs every entry shows its full-size photo rather than only the
- * few that fit inside one run's detail budget.
+ * minutes: a published day page never changes, and re-reading it costs a
+ * headless navigation and a Cloudflare solve each time.
  */
-function cachedBetterPhoto(href: string, expectedDate: string): Promise<string> {
+function cachedDayPhotos(href: string, deadline?: number): Promise<VicharanPhoto[]> {
   return unstable_cache(
-    () => fetchBetterPhoto(href, expectedDate),
-    ["vicharan-detail-photo", href],
-    // Its own tag, not the dashboard's: refreshing the dashboard should
-    // never throw away day photos, which don't change and cost a
-    // navigation each to re-earn.
+    () => fetchDayPhotos(href, deadline),
+    ["vicharan-day-photos", href],
+    // Its own tag, not the dashboard's: refreshing the dashboard should never
+    // throw away the day's photos, which don't change and cost a navigation
+    // to re-earn.
     { revalidate: DETAIL_PHOTO_TTL_S, tags: ["vicharan-detail-photo"] },
   )();
 }
@@ -174,7 +148,7 @@ function cachedBetterPhoto(href: string, expectedDate: string): Promise<string> 
 // date straight off the URL is steadier than relying on each thumbnail
 // sitting inside its own <a> — on the listing page the caption sits outside
 // the link, and some thumbnails aren't wrapped in one at all, which left
-// `href` undefined and skipped the detail fetch entirely.
+// `href` undefined.
 const DETAIL_HREF_RE = /\/Vicharan\/\d{4}\/(\d{1,2})-([A-Za-z]{3,9})-(\d{4})-\d+\.aspx/i;
 
 export function collectDetailLinksByDate(
@@ -201,7 +175,7 @@ interface ListingEntry {
 }
 
 /**
- * Reads the listing page down to the newest few days, newest first.
+ * Reads the listing page and returns one entry per day, newest day first.
  *
  * The caption text ("4-Aug-2026 - Sarangpur, India") sits outside the <a>
  * in the listing markup, so the DOM scan often comes back with an empty
@@ -214,25 +188,40 @@ function parseListing($: cheerio.CheerioAPI, sourceUrl: string): ListingEntry[] 
   const captionByDate = collectCaptionsByDate($);
   const detailByDate = collectDetailLinksByDate($, sourceUrl);
 
-  const parsed = contentImages
-    .map((img): ListingEntry | undefined => {
-      const fromCaption = splitDateLocation(img.caption || undefined);
-      const date = fromCaption.date ?? dateFromFilename(img.src);
-      if (!date) return undefined;
-      const location = fromCaption.location ?? captionByDate.get(date) ?? "";
-      return {
-        date,
-        location,
-        thumbnail: img.src,
-        href: img.href ?? detailByDate.get(date),
-      };
-    })
-    .filter((e): e is ListingEntry => Boolean(e));
+  const byDate = new Map<string, ListingEntry>();
+  for (const img of contentImages) {
+    const fromCaption = splitDateLocation(img.caption || undefined);
+    const date = fromCaption.date ?? dateFromFilename(img.src);
+    if (!date || byDate.has(date)) continue;
+    byDate.set(date, {
+      date,
+      location: fromCaption.location ?? captionByDate.get(date) ?? "",
+      thumbnail: img.src,
+      href: img.href ?? detailByDate.get(date),
+    });
+  }
 
-  // Listing order is chronological ascending (oldest day first); take the
-  // most recent slice and show newest-first, matching how the source site
-  // itself highlights the latest Vicharan first.
-  return parsed.slice(-MAX_ENTRIES).reverse();
+  // A day page may be linked without its thumbnail sitting in the content
+  // scan — fold those in so the newest day is never missed just because its
+  // image didn't parse.
+  for (const [date, href] of detailByDate) {
+    if (byDate.has(date)) continue;
+    byDate.set(date, {
+      date,
+      location: captionByDate.get(date) ?? "",
+      thumbnail: "",
+      href,
+    });
+  }
+
+  return [...byDate.values()].sort(
+    (a, b) => dateSortKey(b.date) - dateSortKey(a.date),
+  );
+}
+
+/** The single newest day on the listing page, or undefined if none parsed. */
+function latestDay($: cheerio.CheerioAPI, sourceUrl: string): ListingEntry | undefined {
+  return parseListing($, sourceUrl)[0];
 }
 
 export async function getVicharan(
@@ -248,58 +237,28 @@ export async function getVicharan(
     });
     const $ = cheerio.load(html);
 
-    const recent = parseListing($, sourceUrl);
+    const latest = latestDay($, sourceUrl);
 
-    // Hard deadline for the whole detail-fetch phase: past it, remaining
-    // entries just keep their listing thumbnail rather than risking the
-    // function timing out and losing the entire dashboard.
-    // Whichever comes first: this phase's own budget, or the caller's
-    // wall-clock deadline for the whole scrape.
-    const detailDeadline = Math.min(
-      Date.now() + DETAIL_PHASE_BUDGET_MS,
-      deadline ?? Number.POSITIVE_INFINITY,
-    );
-    const betterPhotos = await mapWithConcurrency(
-      recent,
-      DETAIL_FETCH_CONCURRENCY,
-      async (entry, i) => {
-        // Newest days first, so if the budget runs out it's the older
-        // entries that keep their thumbnail rather than the headline photo.
-        // Deadline is checked against the point this fetch could *finish*,
-        // not the point it starts — otherwise a fetch begun one millisecond
-        // inside the budget could still overrun it by a full timeout.
-        if (
-          !entry.href ||
-          i >= MAX_DETAIL_FETCHES ||
-          Date.now() + DETAIL_FETCH_TIMEOUT_MS > detailDeadline
-        ) {
-          return undefined;
-        }
-        // Not conditioned on `fresh`: a day page is immutable once
-        // published, so the manual refresh has nothing to gain from
-        // re-fetching six of them and a whole budget to lose.
-        const startedAt = Date.now();
-        const photo = await cachedBetterPhoto(entry.href, entry.date).catch(
-          () => undefined,
-        );
-        // Only a fast *success* is a cache hit. A challenge rejection also
-        // comes back in milliseconds, and treating that as a cache hit meant
-        // the spacing never engaged for exactly the runs that needed it —
-        // five day pages were refused in barely a second between them.
-        const cacheHit = photo !== undefined && Date.now() - startedAt < 300;
-        if (!cacheHit && i < recent.length - 1) {
-          await sleep(DETAIL_FETCH_SPACING_MS);
-        }
-        return photo;
-      },
-    );
-
-    const entries: VicharanEntry[] = recent.map((entry, i) => ({
-      date: entry.date,
-      location: entry.location,
-      image: betterPhotos[i] ?? entry.thumbnail,
-      href: entry.href,
-    }));
+    // Pull every photo off the newest day's own page. Not conditioned on
+    // `fresh`: a published day page is immutable, so a manual refresh has
+    // nothing to gain from re-navigating it.
+    let photos: VicharanPhoto[] = [];
+    if (latest?.href) {
+      // Space this navigation off the listing fetch that just ran: two
+      // back-to-back page loads on baps.org make Cloudflare challenge the
+      // second, and that challenge is what leaves the panel with only the
+      // fallback thumbnail. Skip the pause if there isn't budget left for it.
+      const roomForSpacing =
+        deadline === undefined ||
+        Date.now() + DETAIL_FETCH_SPACING_MS + DETAIL_FETCH_TIMEOUT_MS < deadline;
+      if (roomForSpacing) await sleep(DETAIL_FETCH_SPACING_MS);
+      photos = await cachedDayPhotos(latest.href, deadline).catch(() => []);
+    }
+    // If the day page couldn't be read, fall back to the listing thumbnail so
+    // the panel shows something rather than an empty state.
+    if (photos.length === 0 && latest?.thumbnail) {
+      photos = [{ image: latest.thumbnail, caption: latest.location || undefined }];
+    }
 
     const scheduleHeading = findHeading($, /vicharan schedule/i);
     let scheduleHref: string | undefined;
@@ -315,7 +274,10 @@ export async function getVicharan(
     }
 
     return {
-      entries,
+      date: latest?.date,
+      location: latest?.location || undefined,
+      detailUrl: latest?.href,
+      photos,
       scheduleNote,
       scheduleHref,
       sourceUrl,
@@ -324,7 +286,7 @@ export async function getVicharan(
     };
   } catch (err) {
     return {
-      entries: [],
+      photos: [],
       sourceUrl,
       fetchedAt,
       ok: false,
@@ -334,50 +296,47 @@ export async function getVicharan(
 }
 
 /**
- * Walks the newest `count` day pages through the day-photo cache, one
- * navigation at a time, and reports what each one resolved to.
- *
- * A scrape only has budget for a couple of uncached day pages, so the
- * carousel fills in over successive runs. This exists so that can be done
- * deliberately — after a deploy, say — rather than waited out. It is
- * exposed only through /api/debug.
+ * Reads the newest day page through the day-photo cache and reports what it
+ * resolved to. A normal scrape already primes exactly this one page, so this
+ * exists only to force the cache after a deploy rather than wait it out. It
+ * is exposed only through /api/debug.
  */
-export async function primeDetailPhotos(
-  count: number,
-): Promise<{ date: string; photo?: string; error?: string }[]> {
+export async function primeDetailPhotos(): Promise<
+  { date?: string; photos?: number; sample?: string[]; error?: string }[]
+> {
   const sourceUrl = SOURCES.vicharan;
-  let recent: ListingEntry[];
+  let latest: ListingEntry | undefined;
   try {
-    recent = parseListing(cheerio.load(await fetchHtml(sourceUrl)), sourceUrl);
+    latest = latestDay(cheerio.load(await fetchHtml(sourceUrl)), sourceUrl);
   } catch (err) {
-    return [{ date: "listing", error: err instanceof Error ? err.message : String(err) }];
+    return [{ error: err instanceof Error ? err.message : String(err) }];
   }
 
-  const out: { date: string; photo?: string; error?: string }[] = [];
-  for (const entry of recent.slice(0, Math.min(count, MAX_ENTRIES))) {
-    if (!entry.href) {
-      out.push({ date: entry.date, error: "no day-page link" });
-      continue;
-    }
-    try {
-      out.push({
-        date: entry.date,
-        photo: await cachedBetterPhoto(entry.href, entry.date),
-      });
-    } catch (err) {
-      out.push({
-        date: entry.date,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-    await sleep(DETAIL_FETCH_SPACING_MS);
+  if (!latest?.href) {
+    return [{ date: latest?.date, error: "no day-page link on the newest entry" }];
   }
 
-  // Mark the cached dashboard stale so the page picks the newly primed
-  // photos up on its next visit rather than at the end of its 30-minute
-  // window. "max" is stale-while-revalidate: the current blob is still
-  // served while the re-scrape runs, so nobody waits on it.
-  if (out.some((r) => r.photo)) revalidateTag("dashboard", "max");
+  // Same burst pause as the live scrape: the day page is challenged if it
+  // loads right on the heels of the listing fetch above.
+  await sleep(DETAIL_FETCH_SPACING_MS);
 
-  return out;
+  let result: { date?: string; photos?: number; sample?: string[]; error?: string };
+  try {
+    const photos = await cachedDayPhotos(latest.href);
+    result = {
+      date: latest.date,
+      photos: photos.length,
+      sample: photos.slice(0, 4).map((p) => p.caption ?? p.image.split("/").pop() ?? ""),
+    };
+  } catch (err) {
+    result = { date: latest.date, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  // Mark the cached dashboard stale so the page picks the newly primed photos
+  // up on its next visit rather than at the end of its 30-minute window.
+  // "max" is stale-while-revalidate: the current blob is still served while
+  // the re-scrape runs, so nobody waits on it.
+  if (result.photos) revalidateTag("dashboard", "max");
+
+  return [result];
 }

@@ -26,10 +26,16 @@ async function scrapeDashboard(opts: DashboardOptions): Promise<DashboardData> {
   // Split rather than shared: Daily Satsang gets the first half of the
   // budget so it can't consume the whole thing and leave Vicharan with
   // nothing, which would lose half the dashboard rather than trimming it.
-  const deadline = Date.now() + SCRAPE_BUDGET_MS;
+  const start = Date.now();
+  const deadline = start + SCRAPE_BUDGET_MS;
+  // Daily Satsang is the content-heavy source (darshan, prerna, vachanamrut,
+  // audio) and the one most likely to be starved on a cold start. Vicharan now
+  // costs only a listing fetch plus a single day-page navigation — nothing like
+  // the old six-day detail phase — so Satsang gets the larger share of the
+  // budget, with Vicharan taking whatever remains up to the wall-clock ceiling.
   const satsang = await getDailySatsang({
     ...opts,
-    deadline: Date.now() + SCRAPE_BUDGET_MS / 2,
+    deadline: start + Math.round(SCRAPE_BUDGET_MS * 0.62),
   });
   const vicharan = await getVicharan({ ...opts, deadline });
 
@@ -46,8 +52,12 @@ async function scrapeDashboard(opts: DashboardOptions): Promise<DashboardData> {
  * cache only wraps fetch(). unstable_cache wraps arbitrary async work, so
  * one scrape every 30 minutes serves every request in between.
  *
- * A failed scrape is deliberately not cached — otherwise a single bad run
- * would pin empty states in place for the full window.
+ * The page blocks on this during render (force-dynamic SSR), so the cache
+ * MUST always hold something: Next serves the cached value while it
+ * revalidates in the background, which is the only thing keeping loads fast.
+ * Refusing to cache a partial run turned every request into a fresh 30–45s
+ * cold scrape — so a partial run is cached too, and simply heals on the next
+ * background revalidation (or when the user hits refresh).
  */
 const cachedScrape = unstable_cache(
   () => scrapeDashboard({}),

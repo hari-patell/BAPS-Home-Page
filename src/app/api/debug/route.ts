@@ -50,17 +50,16 @@ async function probeDetail(url: string | undefined) {
 }
 
 export async function GET(request: Request) {
-  // ?prime=N walks the newest N day pages through the day-photo cache, one
-  // navigation at a time. A normal scrape only has budget for a couple of
-  // those, so the strip fills in over successive runs; this is the manual
-  // shove that gets it there in one go after a deploy.
+  // ?prime=1 forces the newest day page through the day-photo cache now,
+  // rather than waiting for the next dashboard scrape to prime it after a
+  // deploy.
   const prime = Number(new URL(request.url).searchParams.get("prime") ?? 0);
   if (prime > 0) {
     // Priming returns on its own. Doing it *and* the full report needs two
-    // listing scrapes plus several day pages, which ran past the 60s
-    // ceiling and returned nothing at all.
+    // listing scrapes plus the day page, which ran past the 60s ceiling and
+    // returned nothing at all.
     return NextResponse.json(
-      { primed: await primeDetailPhotos(prime) },
+      { primed: await primeDetailPhotos() },
       { headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -71,7 +70,7 @@ export async function GET(request: Request) {
   // same data the page shows, which is what this is meant to check.
   const data = await getDashboardData();
   const scrapeMs = Date.now() - startedAt;
-  const detail = await probeDetail(data.vicharan.entries[0]?.href);
+  const detail = await probeDetail(data.vicharan.detailUrl);
 
   return NextResponse.json(
     {
@@ -90,8 +89,10 @@ export async function GET(request: Request) {
         audioTitles: data.satsang.audio.map((a) => a.title),
         murtiImages: data.satsang.darshan.murti.map((i) => i.src),
         swamishriImages: data.satsang.darshan.swamishri.map((i) => i.src),
-        vicharanEntriesFound: data.vicharan.entries.length,
-        vicharanSample: data.vicharan.entries.slice(0, 6),
+        vicharanDate: data.vicharan.date,
+        vicharanLocation: data.vicharan.location,
+        vicharanPhotosFound: data.vicharan.photos.length,
+        vicharanSample: data.vicharan.photos.slice(0, 8),
         scheduleNote: data.vicharan.scheduleNote,
       },
     },

@@ -3,7 +3,7 @@ import type { TextBlock } from "@/lib/types";
 export function PrernaParimalCard({ block }: { block?: TextBlock }) {
   return (
     <div className="flex h-72 flex-col rounded-3xl border border-asmita/10 bg-black/20 p-5 backdrop-blur-sm">
-      <h2 className="shrink-0 font-display text-lg italic text-dharma">
+      <h2 className="shrink-0 font-display text-lg text-dharma">
         {block?.heading ?? "Prerna Parimal"}
       </h2>
       {block ? (

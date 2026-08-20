@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { DarshanImage } from "@/lib/types";
 import { ProxiedImage } from "./ProxiedImage";
+import { Lightbox } from "./Lightbox";
 
 interface Props {
   murti: DarshanImage[];
@@ -16,6 +17,7 @@ export function DarshanPanel({ murti, swamishri }: Props) {
   const hasSwamishri = swamishri.length > 0;
   const [tab, setTab] = useState<Tab>(hasSwamishri ? "swamishri" : "murti");
   const [index, setIndex] = useState(0);
+  const [zoomed, setZoomed] = useState(false);
 
   const active = tab === "swamishri" ? swamishri : murti;
   const current = active[index] ?? active[0];
@@ -28,7 +30,7 @@ export function DarshanPanel({ murti, swamishri }: Props) {
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-3xl border border-asmita/10 bg-black/20 backdrop-blur-sm">
       <div className="flex shrink-0 items-center justify-between gap-2 px-5 pt-4">
-        <h2 className="font-display text-lg italic text-dharma">Darshan</h2>
+        <h2 className="font-display text-lg text-dharma">Darshan</h2>
         {(hasMurti || hasSwamishri) && (
           <div className="flex items-center gap-1 rounded-full border border-asmita/10 bg-black/20 p-1 text-xs">
             <button
@@ -58,13 +60,20 @@ export function DarshanPanel({ murti, swamishri }: Props) {
       {current ? (
         <>
           <div className="mt-4 min-h-0 flex-1 px-5">
-            <ProxiedImage
-              key={current.src}
-              src={current.src}
-              alt={current.caption ?? "Darshan"}
-              className="h-full w-full rounded-2xl"
-              fit="contain"
-            />
+            <button
+              type="button"
+              onClick={() => setZoomed(true)}
+              aria-label="Enlarge photo"
+              className="h-full w-full cursor-zoom-in"
+            >
+              <ProxiedImage
+                key={current.src}
+                src={current.src}
+                alt={current.caption ?? "Darshan"}
+                className="h-full w-full rounded-2xl"
+                fit="contain"
+              />
+            </button>
           </div>
           <div className="flex shrink-0 items-center justify-between gap-2 px-5 pb-4 pt-3">
             <p className="line-clamp-2 text-xs text-asmita/60">{current.caption}</p>
@@ -89,6 +98,15 @@ export function DarshanPanel({ murti, swamishri }: Props) {
         <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-asmita/40">
           Darshan photos aren&apos;t available right now.
         </div>
+      )}
+
+      {zoomed && current && (
+        <Lightbox
+          src={current.src}
+          alt={current.caption ?? "Darshan"}
+          caption={current.caption}
+          onClose={() => setZoomed(false)}
+        />
       )}
     </div>
   );
