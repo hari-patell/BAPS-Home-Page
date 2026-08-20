@@ -9,8 +9,11 @@
   "use strict";
 
   const CACHE_KEY = "baps-dashboard-v1";
+  const BOOKMARKS_KEY = "baps-bookmarks-v1";
   const AUTOPLAY_MS = 6000;
 
+  // Fixed shortcuts. The user's own bookmarks are appended after these and
+  // persisted separately in localStorage.
   const QUICK_LINKS = [
     { label: "BAPS.org", href: "https://www.baps.org/" },
     { label: "Daily Satsang", href: "https://www.baps.org/Daily-Satsang.aspx" },
@@ -58,16 +61,152 @@
     });
   }
 
-  // ---------- quick links ----------
-  function initQuickLinks() {
-    const nav = $("quicklinks");
-    QUICK_LINKS.forEach(function (link) {
-      const a = document.createElement("a");
-      a.className = "quicklink";
-      a.href = link.href;
-      a.textContent = link.label;
-      nav.appendChild(a);
+  // ---------- quick links + user bookmarks ----------
+  let bookmarks = [];
+  let addingBookmark = false;
+
+  function loadBookmarks() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(BOOKMARKS_KEY));
+      return Array.isArray(raw) ? raw : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  function saveBookmarks() {
+    try {
+      localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks));
+    } catch (e) {
+      /* quota / private mode — non-fatal */
+    }
+  }
+
+  function normalizeUrl(url) {
+    const u = (url || "").trim();
+    if (!u) return "";
+    return /^https?:\/\//i.test(u) ? u : "https://" + u;
+  }
+  function labelFromUrl(url) {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch (e) {
+      return url;
+    }
+  }
+
+  function makeDefaultLink(link) {
+    const a = document.createElement("a");
+    a.className = "quicklink";
+    a.href = link.href;
+    a.textContent = link.label;
+    return a;
+  }
+
+  function makeBookmark(bm, i) {
+    const a = document.createElement("a");
+    a.className = "quicklink custom";
+    a.href = bm.href;
+    const span = document.createElement("span");
+    span.textContent = bm.label;
+    a.appendChild(span);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "quicklink-remove";
+    del.setAttribute("aria-label", "Remove bookmark");
+    del.textContent = "×";
+    del.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      bookmarks.splice(i, 1);
+      saveBookmarks();
+      renderQuickLinks();
     });
+    a.appendChild(del);
+    return a;
+  }
+
+  function makeAddControl() {
+    if (!addingBookmark) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "quicklink quicklink-add";
+      btn.textContent = "+ Add";
+      btn.addEventListener("click", function () {
+        addingBookmark = true;
+        renderQuickLinks();
+        const url = $("bm-url");
+        if (url) url.focus();
+      });
+      return btn;
+    }
+
+    const form = document.createElement("form");
+    form.className = "bookmark-form";
+
+    const label = document.createElement("input");
+    label.className = "bookmark-input";
+    label.type = "text";
+    label.placeholder = "Name (optional)";
+    label.autocomplete = "off";
+
+    const url = document.createElement("input");
+    url.id = "bm-url";
+    url.className = "bookmark-input";
+    url.type = "text";
+    url.placeholder = "example.com";
+    url.autocomplete = "off";
+    url.spellcheck = false;
+
+    const save = document.createElement("button");
+    save.type = "submit";
+    save.className = "bookmark-btn save";
+    save.textContent = "Save";
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "bookmark-btn";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", function () {
+      addingBookmark = false;
+      renderQuickLinks();
+    });
+
+    form.appendChild(label);
+    form.appendChild(url);
+    form.appendChild(save);
+    form.appendChild(cancel);
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      const href = normalizeUrl(url.value);
+      if (!href) {
+        url.focus();
+        return;
+      }
+      bookmarks.push({ label: label.value.trim() || labelFromUrl(href), href: href });
+      saveBookmarks();
+      addingBookmark = false;
+      renderQuickLinks();
+    });
+
+    return form;
+  }
+
+  function renderQuickLinks() {
+    const nav = $("quicklinks");
+    nav.textContent = "";
+    QUICK_LINKS.forEach(function (link) {
+      nav.appendChild(makeDefaultLink(link));
+    });
+    bookmarks.forEach(function (bm, i) {
+      nav.appendChild(makeBookmark(bm, i));
+    });
+    nav.appendChild(makeAddControl());
+  }
+
+  function initQuickLinks() {
+    bookmarks = loadBookmarks();
+    renderQuickLinks();
   }
 
   // ---------- image helper ----------

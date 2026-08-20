@@ -190,6 +190,85 @@ a {
   color: var(--shurvirta);
 }
 
+/* User bookmark: a link with an inline remove button. */
+.quicklink.custom {
+  padding-right: 0.5rem;
+}
+.quicklink-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.15rem;
+  width: 1.15rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--asmita) 45%, transparent);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.quicklink-remove:hover {
+  background: color-mix(in srgb, var(--asmita) 15%, transparent);
+  color: var(--asmita);
+}
+
+/* "+ Add" chip and the inline add form. */
+.quicklink-add {
+  border-style: dashed;
+  cursor: pointer;
+  font-family: inherit;
+}
+.bookmark-form {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.bookmark-input {
+  width: 8.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--asmita) 15%, transparent);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--asmita);
+  font-size: 0.8rem;
+  padding: 0.45rem 0.85rem;
+  outline: none;
+}
+.bookmark-input::placeholder {
+  color: color-mix(in srgb, var(--asmita) 40%, transparent);
+}
+.bookmark-input:focus {
+  border-color: color-mix(in srgb, var(--shurvirta) 55%, transparent);
+}
+.bookmark-btn {
+  border: 1px solid color-mix(in srgb, var(--asmita) 15%, transparent);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.2);
+  color: color-mix(in srgb, var(--asmita) 75%, transparent);
+  font-size: 0.8rem;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.2s, color 0.2s;
+}
+.bookmark-btn:hover {
+  border-color: color-mix(in srgb, var(--shurvirta) 45%, transparent);
+  color: var(--shurvirta);
+}
+.bookmark-btn.save {
+  background: var(--shurvirta);
+  color: var(--ink);
+  border-color: transparent;
+  font-weight: 600;
+}
+.bookmark-btn.save:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--shurvirta) 88%, white);
+}
+
 /* ---------- Main ---------- */
 .main {
   width: 100%;
