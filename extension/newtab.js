@@ -68,7 +68,7 @@
   let bookmarks = [];
   let addingBookmark = false;
   let folderOpen = false;
-  let dragIndex = null;
+  let draggingEl = null;
   let dragContext = null;
 
   function loadBookmarks() {
@@ -172,28 +172,81 @@
     saveBookmarks();
     renderQuickLinks();
   }
-  function moveBookmark(from, to) {
-    if (from === to) return;
-    const item = bookmarks.splice(from, 1)[0];
-    // Indices after the removed slot shifted down by one.
-    bookmarks.splice(from < to ? to - 1 : to, 0, item);
+  // ----- drag-to-reorder (live: items slide out of the way as you drag) -----
+  // Each rendered chip/row carries a `_bm` back-reference to its bookmark, so
+  // after a drag we can rebuild the array straight from the DOM order.
+
+  // The sibling the dragged element should sit *before*, given the pointer
+  // position (null = past the end).
+  function dragAfterElement(items, axis, e) {
+    const pos = axis === "x" ? e.clientX : e.clientY;
+    let closestEl = null;
+    let closestDist = -Infinity;
+    for (let k = 0; k < items.length; k++) {
+      const box = items[k].getBoundingClientRect();
+      const center = axis === "x" ? box.left + box.width / 2 : box.top + box.height / 2;
+      const offset = pos - center;
+      if (offset < 0 && offset > closestDist) {
+        closestDist = offset;
+        closestEl = items[k];
+      }
+    }
+    return closestEl;
+  }
+
+  function commitOrder(context) {
+    const nav = $("quicklinks");
+    const collect = function (nodes) {
+      const out = [];
+      for (let k = 0; k < nodes.length; k++) if (nodes[k]._bm) out.push(nodes[k]._bm);
+      return out;
+    };
+    if (context === "bar") {
+      const bar = collect(nav.querySelectorAll(".quicklink.custom"));
+      const folder = bookmarks.filter(function (b) { return b.folder; });
+      bookmarks = bar.concat(folder);
+    } else {
+      const pop = nav.querySelector(".folder-popover");
+      const folder = pop ? collect(pop.querySelectorAll(".folder-item")) : [];
+      const bar = bookmarks.filter(function (b) { return !b.folder; });
+      bookmarks = bar.concat(folder);
+    }
     saveBookmarks();
     renderQuickLinks();
   }
 
-  // Wire an element for drag-to-reorder. Dragging is confined to its own
-  // context ("bar" or "folder"); moving between the two is done with the
-  // arrow buttons instead.
-  function makeDraggable(el, index, context) {
+  // Make a container reorder its items live while a same-context drag is over it.
+  function enableReorder(container, context, axis, selector) {
+    container.addEventListener("dragover", function (e) {
+      if (!draggingEl || dragContext !== context) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      const items = container.querySelectorAll(selector + ":not(.dragging)");
+      const after = dragAfterElement(items, axis, e);
+      if (after) {
+        container.insertBefore(draggingEl, after);
+      } else if (items.length) {
+        // Past the last item: drop it right after that item (in the bar this
+        // keeps the chip ahead of the folder/add controls).
+        items[items.length - 1].after(draggingEl);
+      }
+    });
+  }
+
+  function makeDraggable(el, bm, context) {
+    el._bm = bm;
     el.draggable = true;
     el.addEventListener("dragstart", function (e) {
-      dragIndex = index;
+      draggingEl = el;
       dragContext = context;
-      el.classList.add("dragging");
+      // Deferred so the drag image is the solid chip, not the dimmed one.
+      setTimeout(function () {
+        el.classList.add("dragging");
+      }, 0);
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = "move";
         try {
-          e.dataTransfer.setData("text/plain", String(index));
+          e.dataTransfer.setData("text/plain", "");
         } catch (err) {
           /* some browsers require a set; ignore failures */
         }
@@ -201,26 +254,11 @@
     });
     el.addEventListener("dragend", function () {
       el.classList.remove("dragging");
-      dragIndex = null;
+      // If the element is still in the DOM, a reorder happened; commit it.
+      // (If it was moved into the folder, that handler already re-rendered.)
+      if (draggingEl && document.contains(draggingEl)) commitOrder(context);
+      draggingEl = null;
       dragContext = null;
-      const marked = document.querySelectorAll(".drop-target");
-      for (let k = 0; k < marked.length; k++) marked[k].classList.remove("drop-target");
-    });
-    el.addEventListener("dragover", function (e) {
-      if (dragIndex === null || dragContext !== context || index === dragIndex) return;
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-      el.classList.add("drop-target");
-    });
-    el.addEventListener("dragleave", function () {
-      el.classList.remove("drop-target");
-    });
-    el.addEventListener("drop", function (e) {
-      if (dragIndex === null || dragContext !== context) return;
-      e.preventDefault();
-      e.stopPropagation();
-      el.classList.remove("drop-target");
-      moveBookmark(dragIndex, index);
     });
   }
 
@@ -240,7 +278,7 @@
       }),
     );
     // Reorder within the bar, or drag onto the folder chip to tuck it away.
-    makeDraggable(a, i, "bar");
+    makeDraggable(a, bm, "bar");
     return a;
   }
 
@@ -267,7 +305,7 @@
         removeBookmark(i);
       }),
     );
-    makeDraggable(row, i, "folder");
+    makeDraggable(row, bm, "folder");
     return row;
   }
 
@@ -283,10 +321,12 @@
       folderOpen = !folderOpen;
       renderQuickLinks();
     });
-    // Drop a bar bookmark onto the folder to tuck it away.
+    // Drop a bar bookmark onto the folder to tuck it away. stopPropagation
+    // keeps the bar's live-reorder handler from also firing while over the chip.
     btn.addEventListener("dragover", function (e) {
-      if (dragIndex === null || dragContext !== "bar") return;
+      if (!draggingEl || dragContext !== "bar") return;
       e.preventDefault();
+      e.stopPropagation();
       if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
       btn.classList.add("drop-target");
     });
@@ -294,17 +334,23 @@
       btn.classList.remove("drop-target");
     });
     btn.addEventListener("drop", function (e) {
-      if (dragIndex === null || dragContext !== "bar") return;
+      if (!draggingEl || dragContext !== "bar") return;
       e.preventDefault();
       e.stopPropagation();
       btn.classList.remove("drop-target");
-      folderOpen = true;
-      setBookmarkFolder(dragIndex, true);
+      const bm = draggingEl._bm;
+      if (bm) {
+        bm.folder = true;
+        saveBookmarks();
+        folderOpen = true;
+        renderQuickLinks();
+      }
     });
     wrap.appendChild(btn);
     if (folderOpen) {
       const pop = document.createElement("div");
       pop.className = "folder-popover";
+      enableReorder(pop, "folder", "y", ".folder-item");
       if (folderEntries.length) {
         folderEntries.forEach(function (entry) {
           pop.appendChild(makeFolderItem(entry.bm, entry.i));
@@ -433,6 +479,8 @@
 
   function initQuickLinks() {
     bookmarks = loadBookmarks();
+    // The bar container persists across renders, so wire live reorder once.
+    enableReorder($("quicklinks"), "bar", "x", ".quicklink.custom");
     renderQuickLinks();
     // Close the folder pop-up when clicking anywhere outside it.
     document.addEventListener("click", function (e) {
