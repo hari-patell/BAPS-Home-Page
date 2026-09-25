@@ -114,42 +114,6 @@ a {
   color: color-mix(in srgb, var(--asmita) 60%, transparent);
 }
 
-.search {
-  position: relative;
-  width: 100%;
-}
-@media (min-width: 1024px) {
-  .search {
-    max-width: 36rem;
-  }
-}
-.search-icon {
-  position: absolute;
-  left: 1.1rem;
-  top: 50%;
-  width: 1.1rem;
-  height: 1.1rem;
-  transform: translateY(-50%);
-  color: color-mix(in srgb, var(--asmita) 45%, transparent);
-}
-.search-input {
-  width: 100%;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--asmita) 12%, transparent);
-  background: rgba(0, 0, 0, 0.25);
-  color: var(--asmita);
-  font-size: 0.95rem;
-  padding: 0.85rem 1.25rem 0.85rem 2.9rem;
-  outline: none;
-  backdrop-filter: blur(6px);
-}
-.search-input::placeholder {
-  color: color-mix(in srgb, var(--asmita) 40%, transparent);
-}
-.search-input:focus {
-  border-color: color-mix(in srgb, var(--shurvirta) 55%, transparent);
-}
-
 .datenav {
   text-align: right;
 }
@@ -163,17 +127,39 @@ a {
   color: color-mix(in srgb, var(--shurvirta) 85%, transparent);
 }
 
-.quicklinks {
-  margin-top: 1.5rem;
+/* Bookmarks row across the top — transparent, blends into the page like a
+   browser bookmark bar (no strip color of its own). */
+.bookmark-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
-  justify-content: center;
+  align-items: center;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.3rem 0.6rem;
 }
-@media (min-width: 1024px) {
-  .quicklinks {
-    justify-content: flex-start;
-  }
+/* Small, flat chips — close to Chrome's native bookmark bar. */
+.bookmark-bar .quicklink {
+  flex-shrink: 0;
+  gap: 0.35rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.4rem;
+  border-color: transparent;
+  background: transparent;
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--asmita) 78%, transparent);
+}
+.bookmark-bar .quicklink:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--asmita) 10%, transparent);
+  color: var(--asmita);
+}
+.bookmark-bar .bm-favicon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+.bookmark-bar .quicklink-folder.open {
+  background: color-mix(in srgb, var(--asmita) 10%, transparent);
+  color: var(--shurvirta);
 }
 .quicklink {
   display: inline-flex;

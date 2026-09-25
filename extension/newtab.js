@@ -42,24 +42,6 @@
     });
   }
 
-  // ---------- search ----------
-  function initSearch() {
-    $("search-form").addEventListener("submit", function (e) {
-      e.preventDefault();
-      const q = $("search-input").value.trim();
-      if (!q) return;
-      const looksLikeUrl =
-        /^https?:\/\//i.test(q) ||
-        /^[^\s]+\.[a-z]{2,}(\/|$)/i.test(q);
-      if (looksLikeUrl) {
-        window.location.href = /^https?:\/\//i.test(q) ? q : "https://" + q;
-      } else {
-        window.location.href =
-          "https://www.google.com/search?q=" + encodeURIComponent(q);
-      }
-    });
-  }
-
   // ---------- quick links + browser bookmarks (read-only mirror) ----------
   // Mirrors the browser's Bookmarks Bar: same bookmarks, folders and favicons.
   // Adding/organizing happens in the browser; this view only reflects it.
@@ -650,7 +632,6 @@
   function boot() {
     tickClock();
     setInterval(tickClock, 1000);
-    initSearch();
     initQuickLinks();
     initVicharanControls();
     initDarshanControls();
