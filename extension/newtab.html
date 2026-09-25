@@ -8,6 +8,9 @@
   </head>
   <body>
     <div class="page">
+      <!-- Bookmarks bar across the very top, like the browser's own bar -->
+      <nav class="bookmark-bar" id="quicklinks" aria-label="Bookmarks"></nav>
+
       <!-- Header -->
       <header class="header">
         <div class="brand">
@@ -22,28 +25,11 @@
             <div class="clock-date" id="clock-date"></div>
           </div>
 
-          <form class="search" id="search-form">
-            <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2" />
-              <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            </svg>
-            <input
-              id="search-input"
-              class="search-input"
-              type="text"
-              placeholder="Search or type a URL"
-              autocomplete="off"
-              spellcheck="false"
-            />
-          </form>
-
           <div class="datenav">
             <div class="datenav-date" id="greg-date"></div>
             <div class="datenav-hindu" id="hindu-date"></div>
           </div>
         </div>
-
-        <nav class="quicklinks" id="quicklinks" aria-label="Quick links"></nav>
       </header>
 
       <main class="main">
