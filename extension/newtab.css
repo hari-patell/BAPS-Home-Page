@@ -127,38 +127,38 @@ a {
   color: color-mix(in srgb, var(--shurvirta) 85%, transparent);
 }
 
-/* Bookmarks bar: a full-width strip across the very top, like the browser's. */
+/* Bookmarks row across the top — transparent, blends into the page like a
+   browser bookmark bar (no strip color of its own). */
 .bookmark-bar {
-  position: sticky;
-  top: 0;
-  z-index: 30;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.15rem;
   width: 100%;
-  padding: 0.4rem 0.9rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--asmita) 10%, transparent);
-  background: color-mix(in srgb, var(--ink) 78%, transparent);
-  backdrop-filter: blur(10px);
+  padding: 0.3rem 0.6rem;
 }
-/* Compact, flatter chips inside the bar (closer to a browser bookmark bar). */
+/* Small, flat chips — close to Chrome's native bookmark bar. */
 .bookmark-bar .quicklink {
   flex-shrink: 0;
-  gap: 0.4rem;
-  padding: 0.3rem 0.55rem;
-  border-radius: 0.5rem;
+  gap: 0.35rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.4rem;
   border-color: transparent;
   background: transparent;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--asmita) 78%, transparent);
 }
 .bookmark-bar .quicklink:hover {
   border-color: transparent;
   background: color-mix(in srgb, var(--asmita) 10%, transparent);
   color: var(--asmita);
 }
+.bookmark-bar .bm-favicon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
 .bookmark-bar .quicklink-folder.open {
-  background: color-mix(in srgb, var(--asmita) 12%, transparent);
+  background: color-mix(in srgb, var(--asmita) 10%, transparent);
   color: var(--shurvirta);
 }
 .quicklink {
